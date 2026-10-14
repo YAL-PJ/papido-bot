@@ -1,0 +1,21 @@
+{
+  "name": "papido-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WhatsApp ordering & Q&A bot for Papido Pizza Jerusalem (demo)",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node scripts/run-tests.js",
+    "evals": "node tests/evals.js",
+    "menu": "node scripts/clean-menu.js data/menu-raw.json && mv menu-clean.json menu-clean.md data/",
+    "menu-images": "node scripts/render-menu-images.js",
+    "logs": "node scripts/logs.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.0"
+  }
+}

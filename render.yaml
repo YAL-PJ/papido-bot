@@ -1,0 +1,33 @@
+# Render blueprint — https://render.com → New → Blueprint → pick this repo.
+# Render asks for the values marked sync:false (paste them from your phone).
+services:
+  - type: web
+    name: papido-bot
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
+      - key: GEMINI_RPM
+        value: "14"
+      - key: DEMO_IGNORE_HOURS
+        value: "true"
+      - key: LOG_CONSOLE
+        value: info
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false

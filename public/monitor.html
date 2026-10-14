@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>פפידו — ניטור</title>
+<style>
+  :root { --bg:#f4f1ea; --panel:#fff; --ink:#1d1b16; --muted:#6f6a5f; --line:#e3ded2; --brand:#d7262f; --ok:#1f7a3a; --warn:#a86b00; --err:#c4161c; --code:#f7f4ee; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#151412; --panel:#1f1d1a; --ink:#f1ede4; --muted:#a39d90; --line:#34312b; --ok:#6fd18e; --warn:#e5b04a; --err:#ff6b6b; --code:#191816; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui,"Segoe UI",Arial,sans-serif; background:var(--bg); color:var(--ink); }
+  header { display:flex; gap:12px; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); background:var(--panel); flex-wrap:wrap; }
+  header b { color:var(--brand); font-size:18px; }
+  header .muted { margin-inline-start:auto; }
+  main { padding:16px; max-width:1300px; margin:0 auto; display:grid; gap:16px; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; }
+  .kpi { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:10px 12px; }
+  .kpi div { color:var(--muted); font-size:12px; }
+  .kpi b { font-size:22px; font-variant-numeric:tabular-nums; }
+  .kpi small { color:var(--muted); display:block; font-size:12px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:900px) { .grid2 { grid-template-columns:1fr; } }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px; min-width:0; }
+  .card h2 { margin:0 0 8px; font-size:15px; display:flex; gap:8px; align-items:center; }
+  .muted { color:var(--muted); font-size:12px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  td, th { padding:5px 6px; border-bottom:1px solid var(--line); text-align:right; vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:12px; }
+  td.t { white-space:nowrap; color:var(--muted); font-variant-numeric:tabular-nums; }
+  td.msg { max-width:520px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  tr.clickable { cursor:pointer; } tr.clickable:hover { background:var(--code); }
+  .lv-warn { color:var(--warn); font-weight:600; } .lv-error { color:var(--err); font-weight:700; }
+  .pill { display:inline-block; border:1px solid var(--line); border-radius:999px; padding:0 7px; font-size:11px; color:var(--muted); }
+  .scroll { max-height:420px; overflow:auto; }
+  select, input, button { font:inherit; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); padding:4px 8px; }
+  pre { white-space:pre-wrap; word-break:break-word; background:var(--code); border-radius:8px; padding:8px; font-size:12px; margin:4px 0 0; max-height:260px; overflow:auto; direction:ltr; text-align:left; }
+  .tl { border-inline-start:2px solid var(--line); margin-inline-start:6px; padding-inline-start:12px; }
+  .tl .ev { margin:0 0 10px; }
+  .ok { color:var(--ok); }
+</style>
+</head>
+<body>
+<header>
+  <b>PAPIDO · ניטור</b>
+  <span class="pill" id="llm">—</span>
+  <span class="muted" id="uptime"></span>
+  <label class="muted"><input type="checkbox" id="auto" checked> רענון אוטומטי</label>
+  <a href="/" class="muted">← לצ'אט</a>
+</header>
+<main>
+  <section class="kpis" id="kpis"></section>
+
+  <section class="grid2">
+    <div class="card">
+      <h2>שיחות אחרונות <span class="muted">לחיצה = כל מה שקרה בהודעה</span></h2>
+      <div class="scroll"><table><thead><tr><th>שעה</th><th>ערוץ</th><th>לקוח</th><th>שיחה</th><th>הודעה</th><th>תשובה</th><th>מסלול</th><th>ms</th></tr></thead><tbody id="turns"></tbody></table></div>
+    </div>
+    <div class="card">
+      <h2>מעקב הודעה <span class="muted" id="traceId"></span></h2>
+      <div id="trace" class="scroll muted">בחרו שורה מהשיחות או מהאירועים.</div>
+    </div>
+  </section>
+
+  <section class="grid2">
+    <div class="card">
+      <h2>שיחות <span class="muted">מזהה שיחה · לחיצה = התמליל המלא</span></h2>
+      <div class="scroll"><table><thead><tr><th>התחלה</th><th>שיחה</th><th>לקוח</th></tr></thead><tbody id="convs"></tbody></table></div>
+    </div>
+    <div class="card">
+      <h2>תמליל <span class="muted" id="convId"></span></h2>
+      <div id="conv" class="scroll muted">בחרו שיחה. לחיצה על הודעה = המעקב הטכני שלה.</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>שגיאות ואזהרות</h2>
+    <div class="scroll"><table><thead><tr><th>שעה</th><th>רמה</th><th>סוג</th><th>הודעה</th></tr></thead><tbody id="problems"></tbody></table></div>
+  </section>
+
+  <section class="card">
+    <h2>כל האירועים
+      <select id="type"><option value="">הכל</option><option>turn</option><option>llm</option><option>tool</option><option>flow</option><option>order</option><option>handoff</option><option>http</option><option>meta</option><option>server</option></select>
+    </h2>
+    <div class="scroll"><table><thead><tr><th>שעה</th><th>רמה</th><th>סוג</th><th>פרטים</th><th>ms</th></tr></thead><tbody id="events"></tbody></table></div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+const time = (ts) => new Date(ts).toLocaleTimeString('he-IL');
+const brief = (e) => e.message || e.reply || e.text || e.name || e.path || (e.toolCalls ? `→ ${e.toolCalls.join(', ') || 'טקסט'}` : '') || '';
+
+function kpi(label, value, sub) { return `<div class="kpi"><div>${label}</div><b>${value}</b>${sub ? `<small>${sub}</small>` : ''}</div>`; }
+const lat = (m, k) => (m.latencyMs[k] ? `${m.latencyMs[k].p50} / ${m.latencyMs[k].p95}` : '—');
+
+async function loadMetrics() {
+  const m = await (await fetch('/api/metrics')).json();
+  const c = m.counters;
+  $('llm').textContent = m.llm;
+  $('uptime').textContent = `פעיל ${Math.floor(m.uptimeSec / 3600)}ש' ${Math.floor((m.uptimeSec % 3600) / 60)}ד' (מאז ${time(m.startedAt)})`;
+  const taps = c['flow.taps'] || 0;
+  const turns = c.turns || 0;
+  $('kpis').innerHTML = [
+    kpi('הודעות', turns, `${taps} לחיצות · ${turns - taps} טקסט`),
+    kpi('הזמנות', c.orders || 0, `${c['orders.revenue'] || 0}₪ · סה"כ בקובץ ${m.orders}`),
+    kpi('העברות לצוות', c.handoffs || 0),
+    kpi('קריאות למודל', c['llm.calls'] || 0, `${c['llm.errors'] || 0} נכשלו · 429: ${c['llm.http_429'] || 0} · 503: ${c['llm.http_503'] || 0}`),
+    kpi('טוקנים', (m.tokens.prompt + m.tokens.output + m.tokens.thoughts).toLocaleString(), `קלט ${m.tokens.prompt.toLocaleString()} · פלט ${m.tokens.output.toLocaleString()} · חשיבה ${m.tokens.thoughts.toLocaleString()}`),
+    kpi('זמן מודל (ms)', lat(m, 'llm'), 'חציון / 95%'),
+    kpi('הודעת טקסט (ms)', lat(m, 'turn.llm'), 'חציון / 95%'),
+    kpi('לחיצה (ms)', lat(m, 'turn.flow'), 'חציון / 95%'),
+    kpi('שגיאות', `<span class="${c.errors ? 'lv-error' : 'ok'}">${c.errors || 0}</span>`, `${c.warns || 0} אזהרות`),
+  ].join('');
+}
+
+async function loadTurns() {
+  const ev = await (await fetch('/api/logs?type=turn&limit=400')).json();
+  const starts = Object.fromEntries(ev.filter((e) => e.type === 'turn.start').map((e) => [e.traceId, e]));
+  const ends = ev.filter((e) => e.type === 'turn.end' || e.type === 'turn.exception').reverse().slice(0, 60);
+  $('turns').innerHTML = ends.map((e) => {
+    const s = starts[e.traceId] || {};
+    return `<tr class="clickable" data-trace="${e.traceId}"><td class="t">${time(e.ts)}</td><td>${esc(e.channel || '')}</td><td>${esc(e.customer || '')}</td><td class="t">${esc(e.conversationId || '')}</td>
+      <td class="msg">${esc(s.payload ? `👆 ${s.text}` : s.text)}</td><td class="msg ${e.level === 'warn' || e.level === 'error' ? 'lv-' + e.level : ''}">${esc(e.reply || e.message || '')}</td>
+      <td><span class="pill">${esc(e.path || '')}</span></td><td>${e.ms ?? ''}</td></tr>`;
+  }).join('');
+}
+
+async function loadConvs() {
+  const list = await (await fetch('/api/conversations?limit=60')).json();
+  $('convs').innerHTML = list.map((c) => `<tr class="clickable" data-conv="${esc(c.conversationId)}"><td class="t">${c.startedAt ? time(c.startedAt) : ''}</td><td>${esc(c.conversationId)}</td><td>${esc(c.customerId || '')}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">עוד אין שיחות</td></tr>';
+}
+
+async function showConv(id) {
+  $('convId').textContent = id;
+  const msgs = await (await fetch(`/api/conversations/${id}`)).json();
+  $('conv').innerHTML = `<table>${msgs.map((m) => `<tr class="clickable" data-trace="${m.messageId || ''}"><td class="t">${time(m.at)}</td><td>${m.from === 'bot' ? '🤖' : '👤'}</td>
+    <td style="white-space:pre-wrap">${esc(m.payload && !m.text ? `👆 ${m.payload}` : m.text || '')}${m.choices ? `<div class="muted">[${esc(m.choices.join(' | '))}]</div>` : ''}${m.error ? `<div class="lv-warn">${esc(m.error)}</div>` : ''}</td>
+    <td class="t">${m.path ? `${m.path} ${m.ms}ms` : ''}</td></tr>`).join('')}</table>`;
+}
+
+async function loadProblems() {
+  const ev = await (await fetch('/api/logs?problems=1&limit=100')).json();
+  $('problems').innerHTML = ev.reverse().map((e) => `<tr class="clickable" data-trace="${e.traceId || ''}"><td class="t">${time(e.ts)}</td><td class="lv-${e.level}">${e.level}</td><td>${esc(e.type)}</td><td class="msg">${esc(e.message || e.error || e.reply || '')}</td></tr>`).join('') || '<tr><td colspan="4" class="ok">אין 🎉</td></tr>';
+}
+
+async function loadEvents() {
+  const t = $('type').value;
+  const ev = await (await fetch(`/api/logs?limit=300${t ? `&type=${t}` : ''}`)).json();
+  $('events').innerHTML = ev.reverse().map((e) => `<tr class="clickable" data-trace="${e.traceId || ''}"><td class="t">${time(e.ts)}</td><td class="lv-${e.level}">${e.level}</td><td>${esc(e.type)}</td><td class="msg">${esc(brief(e))}</td><td>${e.ms ?? ''}</td></tr>`).join('');
+}
+
+async function showTrace(id) {
+  if (!id) return;
+  $('traceId').textContent = id;
+  const ev = await (await fetch(`/api/logs?trace=${id}&limit=500`)).json();
+  const t0 = ev.length ? new Date(ev[0].ts).getTime() : 0;
+  $('trace').innerHTML = `<div class="tl">${ev.map((e) => {
+    const { ts, level, type, traceId, customer, channel, ...rest } = e;
+    return `<div class="ev"><span class="pill">+${new Date(ts).getTime() - t0}ms</span> <b class="lv-${level}">${esc(type)}</b> <span class="muted">${esc(brief(e)).slice(0, 140)}</span><pre>${esc(JSON.stringify(rest, null, 2))}</pre></div>`;
+  }).join('')}</div>`;
+}
+
+document.addEventListener('click', (e) => {
+  const cv = e.target.closest('tr[data-conv]'); if (cv) return showConv(cv.dataset.conv);
+  const tr = e.target.closest('tr[data-trace]'); if (tr && tr.dataset.trace) showTrace(tr.dataset.trace);
+});
+$('type').onchange = loadEvents;
+async function refresh() { try { await Promise.all([loadMetrics(), loadTurns(), loadConvs(), loadProblems(), loadEvents()]); } catch {} }
+refresh();
+setInterval(() => { if ($('auto').checked) refresh(); }, 5000);
+</script>
+</body>
+</html>
