@@ -107,6 +107,22 @@ function createAgent({ llm, menu, business, store, options = {} }) {
     return result;
   }
 
+  // "יש ביצים בפיצה?", "אלרגיה לאגוזים", "יש ללא גלוטן?" — but not an order line like "בלי ביצה"
+  const ALLERGEN = /אלרג|רגישות ל|ביצ(ה|ים)|אגוז|בוטנ|שומשום|גלוטן|צליאק|לקטוז|סויה|allerg|gluten|nuts?\b|eggs?\b/i;
+  function isAllergyQuestion(text) {
+    if (!ALLERGEN.test(text)) return false;
+    if (/^(בלי|עם|תוריד|תוסיף|להוריד|להוסיף|without|no )/i.test(text.trim())) return false;
+    return /\?|אלרג|רגיש|צליאק|מכיל|בטוח|מתאים|allerg/i.test(text);
+  }
+  function allergyReply(text) {
+    const a = business.data.allergens || {};
+    const lines = [`מה שידוע לנו: ${a.known || '[לעדכן]'}`];
+    if (/גלוטן|צליאק|gluten/i.test(text) && a.gluten) lines.push(a.gluten);
+    lines.push('אין לנו פירוט מלא של רכיבי הבצק והרטבים, ולכן אנחנו לא יכולים להבטיח שמנה כלשהי ללא אלרגן מסוים.');
+    lines.push('באלרגיה — הכי בטוח לבדוק עם הצוות לפני ההזמנה 👇');
+    return lines.join('\n');
+  }
+
   async function handle(customerId, rawText, rawPayload) {
     const session = store.session(customerId);
     let text = String(rawText || '').trim().slice(0, 2000);
@@ -127,6 +143,17 @@ function createAgent({ llm, menu, business, store, options = {} }) {
       else if (/^(🛵 )?(ב?משלוח|delivery)[.!]?$/i.test(text)) payload = 'svc:delivery';
       else if (/^(🏃 )?(ב?איסוף( עצמי)?|pickup|takeaway)[.!]?$/i.test(text)) payload = 'svc:takeaway';
       if (payload) tel.log('input.intent_shortcut', { text, payload }, 'debug');
+    }
+
+    // ---- allergy questions: a fixed answer from the knowledge base, never the model's guess ----
+    if (!payload && isAllergyQuestion(text)) {
+      tel.log('input.allergy_question', { text: tel.truncate(text, 200) }, 'info');
+      const reply = allergyReply(text);
+      session.history.push({ role: 'user', text }, { role: 'assistant', text: reply });
+      session.history = trimHistory(session.history);
+      return { ...finish(session, reply, [{ name: 'fixed:allergy', args: {}, result: { ok: true } }], {
+        choices: [{ id: 'handoff:allergy', title: '👤 לבדוק עם הצוות' }, { id: 'menu', title: '📋 תפריט' }],
+      }), path: 'flow' };
     }
 
     // ---- taps: deterministic flow ----
@@ -161,9 +188,18 @@ function createAgent({ llm, menu, business, store, options = {} }) {
             toolLog.push({ name: 'send_menu (auto)', args: {}, result: r });
             tel.log('safety_net.menu', { message: 'model said "here is the menu" without sending it — sent automatically' }, 'warn');
           }
-          session.history.push({ role: 'assistant', text: reply, raw: res.raw });
+          // safety net: the model promised to check with the team but never handed off — nobody would check
+          let finalReply = reply;
+          const handedOff = toolLog.some((t) => t.name === 'handoff_to_human' && !t.result?.error);
+          if (!handedOff && /(אבדוק|נבדוק|אברר|נברר|אבדוק את זה|אעביר (את )?(זה|השאלה)|הצוות (יחזור|יחזרו|יבדוק|יבדקו))/.test(reply) && !/\?\s*$/.test(reply)) {
+            const r = await execute(session, 'handoff_to_human', { reason: `auto (model said it would check): ${text.slice(0, 200)}` }, { source: 'safety-net' });
+            toolLog.push({ name: 'handoff_to_human (auto)', args: {}, result: r });
+            tel.log('safety_net.handoff', { message: 'model promised to check without handing off — handed off automatically' }, 'warn');
+            finalReply = `${reply}\n${r.message_for_customer}`;
+          }
+          session.history.push({ role: 'assistant', text: finalReply, raw: res.raw });
           session.history = trimHistory(session.history);
-          return { ...finish(session, reply, toolLog), path: 'llm', rounds: round + 1 };
+          return { ...finish(session, finalReply, toolLog), path: 'llm', rounds: round + 1 };
         }
 
         const calls = res.toolCalls.map((c) => ({ ...c, id: c.id || `call_${++callId}` }));

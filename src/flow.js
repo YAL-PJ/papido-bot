@@ -189,7 +189,7 @@ function createFlow({ menu, business, store, execute: rawExecute }) {
 
   async function handle(s, payload) {
     const [kind, ...a] = String(payload).split(':');
-    const needService = !['svc', 'menu'].includes(kind) && !s.service;
+    const needService = !['svc', 'menu', 'handoff', 'allergy'].includes(kind) && !s.service;
     if (needService) return { reply: 'משלוח או איסוף עצמי? (המחירים שונים)', choices: serviceChoices() };
 
     switch (kind) {
@@ -268,6 +268,10 @@ function createFlow({ menu, business, store, execute: rawExecute }) {
         return cartReply(s, '🗑 הוסר.');
       }
       case 'checkout': return checkoutReply(s);
+      case 'handoff': {
+        const r = await execute(s, 'handoff_to_human', { reason: a.join(':') || 'customer asked' });
+        return { reply: r.message_for_customer, choices: [c('menu', '📋 תפריט')] };
+      }
       case 'addr': {
         if (a[0] === 'saved') {
           const saved = store.customer(s.customerId);

@@ -598,3 +598,40 @@ test('log shipper: events go to Redis in batches, survive a "restart", and reads
   const again = await b.read({ limit: 50, filter: (e) => e.type === 'shipper.test' });
   assert.equal(again.length, 1);
 });
+
+test('allergy questions get a fixed answer from the knowledge base (never "free of X"), with a team button', async () => {
+  const store = tmpStore();
+  const llm = { name: 'fake', complete: async () => { throw new Error('model should not be called'); } };
+  const agent = createAgent({ llm, menu, business, store, options: { ignoreHours: true } });
+  for (const q of ['יש בפיצות ביצים?', 'יש לי אלרגיה לאגוזים, מה בטוח?', 'יש ללא גלוטן?']) {
+    const r = await agent.answer(`+97250000009${q.length % 10}`, q);
+    assert.equal(r.path, 'flow', q);
+    assert.doesNotMatch(r.reply, /ללא ביצ|בלי ביצ|בטוח לך/);
+    assert.match(r.reply, /לא יכולים להבטיח/);
+    assert.equal(r.choices[0].id, 'handoff:allergy');
+  }
+  const g = await agent.answer('+972500000099', 'יש ללא גלוטן?');
+  assert.match(g.reply, /אין כרגע בצק ללא גלוטן/);
+  const h = await agent.answer('+972500000099', '', 'handoff:allergy');
+  assert.equal(store.session('+972500000099').status, 'handoff');
+  assert.match(h.reply, /צוות/);
+});
+
+test('"בלי ביצה" in an order is not treated as an allergy question', async () => {
+  const store = tmpStore();
+  let called = false;
+  const llm = { name: 'fake', complete: async () => { called = true; return { text: 'בסדר', toolCalls: [] }; } };
+  const agent = createAgent({ llm, menu, business, store, options: { ignoreHours: true } });
+  await agent.answer('+972500000098', 'בלי ביצה בבקשה');
+  assert.ok(called);
+});
+
+test('model says "אבדוק" without handing off → handed off automatically', async () => {
+  const store = tmpStore();
+  const llm = { name: 'fake', complete: async () => ({ text: 'אבדוק את זה מול הצוות שלנו 🍕', toolCalls: [] }) };
+  const agent = createAgent({ llm, menu, business, store, options: { ignoreHours: true } });
+  const r = await agent.answer('+972500000097', 'מקבלים סיבוס?');
+  assert.equal(store.session('+972500000097').status, 'handoff');
+  assert.ok(r.tools.some((t) => t.name === 'handoff_to_human (auto)'));
+  assert.match(r.reply, /יחזרו אליך/);
+});
