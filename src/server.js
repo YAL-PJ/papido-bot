@@ -90,7 +90,10 @@ const server = http.createServer(async (req, res) => {
   });
   try {
     if (ADMIN.test(url.pathname) && !adminAllowed(req)) {
-      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="papido-admin", charset="UTF-8"', 'Content-Type': 'text/plain; charset=utf-8' });
+      // only the /monitor page opens the browser's login box; background API calls just get 401
+      // (after logging in at /monitor the browser sends the password with them automatically)
+      const challenge = url.pathname === '/monitor' ? { 'WWW-Authenticate': 'Basic realm="papido-admin", charset="UTF-8"' } : {};
+      res.writeHead(401, { ...challenge, 'Content-Type': 'text/plain; charset=utf-8' });
       return res.end('נדרשת סיסמת ניהול');
     }
     if (url.pathname === '/healthz') return send(res, { body: { ok: true, storage: store.backend.name } });
