@@ -1,6 +1,7 @@
 // prompt.js — the bot's instructions. Static part (rules, knowledge, menu) + dynamic state per turn.
 
 const { SERVICES } = require('./menu');
+const { catalogsFor } = require('./catalog');
 const { describeLine, totals } = require('./tools');
 
 function staticPrompt({ business, menu }) {
@@ -55,7 +56,9 @@ function staticPrompt({ business, menu }) {
    - **בקשה לשינוי/תוספת למנה שכבר בסל ("עם תוספת גבינה", "תוסיף לה זיתים", "בעצם L") → modify_cart_item על אותה שורה. אסור add_to_cart — זה יוצר מנה נוספת.**
    - "אפשר עם X?" / "יש אפשרות ל-X?" על מנה שבסל = בקשה. מוסיפים מיד (modify_cart_item) ואומרים את התוספת למחיר — לא שואלים "להוסיף?".
    - "אני רוצה הכל"/"כן" אחרי שהצעת תוספת = להוסיף את התוספת שהצעת למנה הקיימת (modify_cart_item).
-   - אחרי הוספה: שורה אחת שמאשרת מה נוסף + "עוד משהו?". לא לחזור על כל הסל.
+   - אחרי הוספה/שינוי: המערכת שולחת ללקוח אוטומטית את המנה, המחיר והסכום בסל + כפתורים. אל תכתוב אישור ואל תחזור על מחירים — כתוב רק תשובה לשאלה אחרת שהלקוח שאל באותה הודעה (אם יש), אחרת השאר טקסט ריק.
+   - כמה מנות בהודעה אחת → כל קריאות add_to_cart באותה תשובה (במקביל), לא אחת-אחת.
+   - "זהו"/"לסיום" עוד לא נאמר → לא מבקשים כתובת ופרטים. קודם הלקוח מסיים לבחור.
    - מותר להציע תוספת אחת לכל היותר בכל ההזמנה, רק מהתפריט (למשל לחם שום / זפולי).
 3. "זהו" → בקש את כל הפרטים בהודעה אחת:
    משלוח: "לאן לשלוח (רחוב, מספר, שכונה, קומה)? על איזה שם? מזומן או אשראי?"
@@ -71,22 +74,59 @@ function staticPrompt({ business, menu }) {
 
 # מידע על העסק
 ${business.promptText()}
-
-# תפריט איסוף עצמי (מזהה | מנה | מחיר | תיאור)
-${menu.compactListing('takeaway')}
-
-# תפריט משלוח (מזהה | מנה | מחיר | תיאור)
-${menu.compactListing('delivery')}
 `;
 }
 
-function statePrompt({ session, business, store }) {
+// The menu as the model sees it: one line per dish (sizes merged, no Tabit duplicates), only for the chosen service.
+// Before the service is known: names + both prices, no ids (set_service first — the next round gets the ids).
+const menuCache = new Map();
+function menuPrompt(menu, service) {
+  const key = service || 'none';
+  if (menuCache.has(key)) return menuCache.get(key);
+  const cats = catalogsFor(menu);
+  const lines = [];
+  if (!service) {
+    lines.push('# תפריט (מחיר איסוף / משלוח). למזהים — קודם set_service.');
+    const deliveryPrice = new Map();
+    for (const cat of cats.delivery) for (const it of cat.items) deliveryPrice.set(it.title, it.sizes);
+    for (const cat of cats.takeaway) {
+      lines.push(`## ${cat.title}`);
+      for (const it of cat.items) {
+        const d = deliveryPrice.get(it.title) || [];
+        const price = it.sizes.map((s) => {
+          const ds = d.find((x) => x.label === s.label);
+          return `${s.label ? `${s.label} ` : ''}${s.price}₪${ds ? ` / ${ds.price}₪` : ''}`;
+        }).join(' · ');
+        lines.push(`${it.title} | ${price}${it.description ? ` | ${it.description}` : ''}`);
+      }
+    }
+  } else {
+    lines.push(`# תפריט ${SERVICES[service]} — add_to_cart(product_id, size). מנה עם כמה גדלים: חובה size, ורק גודל שהלקוח אמר.`);
+    for (const cat of cats[service]) {
+      lines.push(`## ${cat.title}`);
+      for (const it of cat.items) {
+        const sameId = it.sizes.every((s) => s.product_id === it.sizes[0].product_id);
+        const price = it.sizes.map((s) => `${s.label ? `${s.label} ` : ''}${s.price}₪${sameId ? '' : ` (${s.product_id})`}`).join(' / ');
+        const p = menu.get(service, it.sizes[0].product_id);
+        const hasOptions = p && p.variants.some((v) => v.groups.length);
+        lines.push(`${sameId ? `${it.sizes[0].product_id} | ` : ''}${it.title} | ${price}${it.description ? ` | ${it.description}` : ''}${hasOptions ? ' | [יש תוספות/שינויים]' : ''}`);
+      }
+    }
+  }
+  const text = lines.join('\n');
+  menuCache.set(key, text);
+  return text;
+}
+
+function statePrompt({ session, business, store, ignoreHours = false }) {
   const st = business.status();
   const c = store.customer(session.customerId);
   const t = totals(session, business);
   const lines = [
     '# מצב נוכחי (מתעדכן אוטומטית)',
-    `זמן: ${st.now} | ${st.open ? (st.acceptingOrders ? `פתוח עד ${st.closesAt}` : 'לקראת סגירה, לא מקבלים הזמנות חדשות') : `סגור. נפתח ${st.nextOpening}`}`,
+    ignoreHours && !st.acceptingOrders
+      ? `זמן: ${st.now} | מצב דמו: מקבלים הזמנות עכשיו כרגיל. אל תגיד ללקוח שסגור (רק אם ישאל על שעות פתיחה — ענה לפי השעות).`
+      : `זמן: ${st.now} | ${st.open ? (st.acceptingOrders ? `פתוח עד ${st.closesAt}` : 'לקראת סגירה, לא מקבלים הזמנות חדשות') : `סגור. נפתח ${st.nextOpening}`}`,
     `סוג הזמנה: ${session.service ? SERVICES[session.service] : 'עוד לא נקבע'}`,
     `סל: ${session.cart.length ? session.cart.map((l, i) => `${i + 1}. ${describeLine(l)} ${l.total}₪`).join(' | ') + ` | ביניים: ${t.subtotal}₪` : 'ריק'}`,
     `פרטים: שם=${session.details.name || '—'}, כתובת=${session.details.address || '—'}, איסוף=${session.details.pickupTime || '—'}, תשלום=${session.details.payment || '—'}`,
@@ -101,4 +141,4 @@ function statePrompt({ session, business, store }) {
   return lines.join('\n');
 }
 
-module.exports = { staticPrompt, statePrompt };
+module.exports = { staticPrompt, statePrompt, menuPrompt };

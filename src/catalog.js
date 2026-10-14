@@ -77,7 +77,8 @@ function equivalentLine(menu, line, from, to) {
   let found = null;
   for (const cat of cats[from] || []) {
     for (const item of cat.items) {
-      const s = item.sizes.find((x) => x.product_id === line.product_id && (x.size || null) === (line.size || null));
+      const same = item.sizes.filter((x) => x.product_id === line.product_id);
+      const s = same.length === 1 ? same[0] : same.find((x) => (x.size || null) === (line.size || null) || x.label === line.size);
       if (s) { found = { item, label: s.label }; break; }
     }
     if (found) break;

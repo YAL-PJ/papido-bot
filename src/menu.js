@@ -195,7 +195,8 @@ class Menu {
       line: {
         product_id: p.id,
         name: p.name,
-        size: variant.label,
+        // Tabit also lists some L pizzas as separate one-size products (category "… L") — still show the size
+        size: variant.label || (/(^|\s)L$/.test(p.category) ? 'L' : /פיצ/.test(p.category) && /אישי/.test(p.category) ? 'אישית' : null),
         quantity: qty,
         add: chosen.filter((c) => c.kind === 'add').map((c) => ({ name: c.name, group: c.group, price: c.price })),
         remove: chosen.filter((c) => c.kind === 'remove').map((c) => c.name),

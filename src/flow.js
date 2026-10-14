@@ -2,6 +2,7 @@
 // handled here deterministically, without the language model: fast, free, and always correct.
 // Free text still goes to the model (agent.js), which sees the same session state.
 
+const tel = require('./telemetry');
 const { SERVICES } = require('./menu');
 const { priceText, catalogsFor } = require('./catalog');
 const { describeLine, itemTitle } = require('./tools');
@@ -189,7 +190,18 @@ function createFlow({ menu, business, store, execute: rawExecute }) {
 
   async function handle(s, payload) {
     const [kind, ...a] = String(payload).split(':');
-    const needService = !['svc', 'menu', 'handoff', 'allergy'].includes(kind) && !s.service;
+    // a button from an earlier (already closed) conversation: its cart line is gone — don't act on it
+    const lineRef = { opts: 0, opt: 0, done: 0, del: 0 }[kind];
+    const staleLine = lineRef !== undefined && !s.cart[Number(a[lineRef]) - 1];
+    if (staleLine || (['edit', 'confirm', 'checkout', 'cart'].includes(kind) && !s.cart.length)) {
+      tel.log('flow.stale_button', { payload }, 'info');
+      const last = store.customer(s.customerId)?.lastOrder;
+      return {
+        reply: last ? 'ההזמנה הקודמת כבר נסגרה 👍 רוצים להזמין שוב?' : 'הסל ריק כרגע 🙂 מה להכין?',
+        choices: [...(last ? [c('repeat', '🔁 כמו פעם שעברה')] : []), c('menu', '📋 תפריט')],
+      };
+    }
+    const needService = !['svc', 'menu', 'handoff', 'allergy', 'repeat'].includes(kind) && !s.service;
     if (needService) return { reply: 'משלוח או איסוף עצמי? (המחירים שונים)', choices: serviceChoices() };
 
     switch (kind) {
@@ -268,6 +280,11 @@ function createFlow({ menu, business, store, execute: rawExecute }) {
         return cartReply(s, '🗑 הוסר.');
       }
       case 'checkout': return checkoutReply(s);
+      case 'repeat': {
+        const r = await execute(s, 'repeat_last_order', {});
+        if (r.error) return { reply: r.error, choices: [c('menu', '📋 תפריט')] };
+        return cartReply(s, '🔁 הזמנתי כמו פעם שעברה:');
+      }
       case 'handoff': {
         const r = await execute(s, 'handoff_to_human', { reason: a.join(':') || 'customer asked' });
         return { reply: r.message_for_customer, choices: [c('menu', '📋 תפריט')] };

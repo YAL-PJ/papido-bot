@@ -44,7 +44,8 @@ function toContents(history) {
   });
 }
 
-function createGemini({ apiKey = process.env.GEMINI_API_KEY, model = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite' } = {}) {
+// GEMINI_FALLBACK_MODEL (optional): used when the main model is overloaded (503) — e.g. another free model.
+function createGemini({ apiKey = process.env.GEMINI_API_KEY, model = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite', fallbackModel = process.env.GEMINI_FALLBACK_MODEL || null } = {}) {
   if (!apiKey) {
     const { ENV_FILE } = require('../env');
     const fs = require('fs');
@@ -58,11 +59,13 @@ function createGemini({ apiKey = process.env.GEMINI_API_KEY, model = process.env
 
   return {
     name: `gemini:${model}`,
-    async complete({ system, history, tools }) {
+    // opts: tools ([] = plain text), maxAttempts, timeoutMs (per HTTP call), purpose (for logs)
+    async complete({ system, history, tools = [], maxAttempts = 5, timeoutMs = 60000, purpose = 'turn' }) {
+      let useModel = model;
       const body = {
         systemInstruction: { parts: [{ text: system }] },
         contents: toContents(history),
-        tools: [{ functionDeclarations: tools }],
+        ...(tools.length ? { tools: [{ functionDeclarations: tools }] } : {}),
         // Gemini 3.x: Google recommends keeping the default temperature (lower values can cause loops).
         // Thinking tokens count toward the output limit, so keep it roomy.
         generationConfig: /^gemini-[12]\./.test(model) ? { temperature: 0.3, maxOutputTokens: 2048 } : { maxOutputTokens: 4096 },
@@ -71,20 +74,22 @@ function createGemini({ apiKey = process.env.GEMINI_API_KEY, model = process.env
       let res;
       let errText = '';
       const tStart = Date.now();
-      for (let attempt = 0; attempt < 5; attempt++) {
+      let overloaded = 0;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const tWait = Date.now();
         await limit();
         const waitedMs = Date.now() - tWait;
         if (waitedMs > 50) tel.log('llm.throttled', { model, waitedMs }, 'debug');
         const t0 = Date.now();
         try {
-          res = await fetch(`${API}/${model}:generateContent`, {
+          res = await fetch(`${API}/${useModel}:generateContent`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, // key in a header, never in URLs/logs
             body: JSON.stringify(body),
+            signal: AbortSignal.timeout(timeoutMs),
           });
         } catch (e) {
-          tel.log('llm.network_error', { provider: 'gemini', model, attempt, ms: Date.now() - t0, message: e.message }, 'error');
+          tel.log('llm.network_error', { provider: 'gemini', model: useModel, purpose, attempt, ms: Date.now() - t0, message: e.message }, purpose === 'turn' ? 'error' : 'warn');
           tel.count('llm.errors');
           throw e;
         }
@@ -94,17 +99,24 @@ function createGemini({ apiKey = process.env.GEMINI_API_KEY, model = process.env
         tel.count(`llm.http_${res.status}`);
         const retryable = [429, 500, 502, 503, 504].includes(res.status) && !(res.status === 429 && /per day|PerDay/i.test(errText));
         const wait = retryable ? (res.status === 429 && retryDelayMs(errText)) || 1500 * 2 ** attempt : 0;
+        const last = attempt >= maxAttempts - 1;
         tel.log('llm.http_error', {
-          provider: 'gemini', model, attempt, status: res.status, ms: Date.now() - t0,
-          message: errText.slice(0, 300), retrying: retryable && attempt < 4, retryInMs: wait,
-        }, retryable && attempt < 4 ? 'warn' : 'error');
-        if (!retryable) break;
+          provider: 'gemini', model: useModel, purpose, attempt, status: res.status, ms: Date.now() - t0,
+          message: errText.slice(0, 300), retrying: retryable && !last, retryInMs: wait,
+        }, retryable && !last ? 'warn' : 'error');
+        if (!retryable || last) break;
+        // overloaded twice in a row → switch to the fallback model for the rest of this call
+        if (res.status === 503 && ++overloaded >= 2 && fallbackModel && useModel !== fallbackModel) {
+          tel.log('llm.fallback_model', { from: useModel, to: fallbackModel, purpose }, 'warn');
+          useModel = fallbackModel;
+          continue;
+        }
         await sleep(wait);
       }
       if (!res.ok) { tel.count('llm.errors'); throw new Error(`Gemini ${res.status}: ${errText.slice(0, 500)}`); }
       const data = await res.json();
       const ms = Date.now() - tStart;
-      tel.timing('llm', ms);
+      tel.timing(purpose === 'turn' ? 'llm' : `llm.${purpose}`, ms);
       const cand = data.candidates?.[0];
       const parts = cand?.content?.parts || [];
       const usage = data.usageMetadata || {};
@@ -117,7 +129,7 @@ function createGemini({ apiKey = process.env.GEMINI_API_KEY, model = process.env
         raw: parts,
       };
       tel.log('llm.call', {
-        provider: 'gemini', model, ms,
+        provider: 'gemini', model: useModel, purpose, ms,
         historyMessages: history.length,
         tokens: { prompt: usage.promptTokenCount, output: usage.candidatesTokenCount, thoughts: usage.thoughtsTokenCount, total: usage.totalTokenCount },
         finishReason: cand?.finishReason,

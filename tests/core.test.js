@@ -1,6 +1,7 @@
 // Deterministic tests — no API key needed.  Run: npm test
 // tests never write into the real logs/ folder
 process.env.LOG_DIR = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'papido-logs-'));
+process.env.PROOFREAD = 'off'; // the fake models in these tests answer by script; proofreading has its own test
 process.env.LOG_CONSOLE = 'silent';
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -385,7 +386,7 @@ test('bug fix: switching delivery → pickup keeps the cart (make-your-own L wit
   assert.ok(!res.dropped, JSON.stringify(res.dropped));
   assert.equal(s.cart.length, 1);
   const l = s.cart[0];
-  assert.equal(l.size, null, 'pickup L is its own product');
+  assert.equal(l.size, 'L', 'pickup L is its own product, still shown as L');
   assert.deepEqual(l.add.map((a) => a.name).sort(), ['פלפלים קלויים', 'רוטב שמנת', 'תירס'].sort());
   assert.ok(l.total < 104, `pickup is cheaper: ${l.total}`);
 
@@ -634,4 +635,54 @@ test('model says "אבדוק" without handing off → handed off automatically',
   assert.equal(store.session('+972500000097').status, 'handoff');
   assert.ok(r.tools.some((t) => t.name === 'handoff_to_human (auto)'));
   assert.match(r.reply, /יחזרו אליך/);
+});
+
+test('proofread: fixes a typo, keeps numbers; rejects a "fix" that changes a price; never blocks on failure', async () => {
+  const { proofread } = require('../src/proofread');
+  process.env.PROOFREAD = 'on';
+  try {
+    const fixer = { complete: async () => ({ text: 'על איזה שם לכתוב את ההזמנה, ומזומן או אשראי?', toolCalls: [] }) };
+    assert.equal(await proofread(fixer, 'על איזה ששום לכתוב את ההזמנה, ומזומן או אשראי?'), 'על איזה שם לכתוב את ההזמנה, ומזומן או אשראי?');
+    const liar = { complete: async () => ({ text: 'פיצה מרגריטה L — 99₪', toolCalls: [] }) };
+    assert.equal(await proofread(liar, 'פיצה מרגריטה L — 117₪'), 'פיצה מרגריטה L — 117₪');
+    const down = { complete: async () => { throw new Error('Gemini 503'); } };
+    assert.equal(await proofread(down, 'הנה התפריט שלנו'), 'הנה התפריט שלנו');
+  } finally { process.env.PROOFREAD = 'off'; }
+});
+
+test('model adds a pizza → the reply shows dish, size and price from code (not the model wording)', async () => {
+  const store = tmpStore();
+  const steps = [
+    { text: '', toolCalls: [{ name: 'set_service', args: { service: 'delivery' } }, { name: 'add_to_cart', args: { product_id: 'd26', size: 'L' } }, { name: 'add_to_cart', args: { product_id: 'd14', size: 'L' } }] },
+    { text: 'הוספתי את שתיהן 🍕 לאן לשלוח?', toolCalls: [] },
+  ];
+  const llm = { name: 'fake', complete: async () => steps.shift() };
+  const agent = createAgent({ llm, menu, business, store, options: { ignoreHours: true } });
+  const r = await agent.answer('+972500000101', 'תזמין ארבע גבינות ותרד וגאודה L משלוח');
+  assert.match(r.reply, /ארבע גבינות לבנה L — 117₪/);
+  assert.match(r.reply, /תרד וגאודה L — 117₪/);
+  assert.match(r.reply, /בסל: 234₪/);
+  assert.doesNotMatch(r.reply, /לאן לשלוח/);
+});
+
+test('the model sees one clean menu line per dish, only for the chosen service', () => {
+  const { menuPrompt } = require('../src/prompt');
+  const d = menuPrompt(menu, 'delivery');
+  assert.equal((d.match(/ארבע גבינות לבנה/g) || []).length, 1, 'no Tabit duplicate');
+  assert.match(d, /d26 \| ארבע גבינות לבנה \| אישית 72₪ \/ L 117₪/);
+  assert.doesNotMatch(d, /\bt\d+\b/, 'no pickup ids in the delivery menu');
+  assert.match(menuPrompt(menu, null), /פיצה מרגריטה \| אישית 50₪ \/ 65₪ · L 85₪ \/ 117₪/);
+});
+
+test('a button from a closed conversation does not act on an empty cart', async () => {
+  const store = tmpStore();
+  const agent = createAgent({ llm: noLLM, menu, business, store, options: { ignoreHours: true } });
+  const id = '+972500000102';
+  store.saveCustomer(id, { name: 'קרל', lastOrder: { service: 'delivery', items: [menu.buildLine('delivery', { product_id: 'd51' }).line], at: new Date().toISOString() } });
+  const r = await agent.answer(id, '⚙️ תוספות / שינויים', 'opts:2:0');
+  assert.match(r.reply, /ההזמנה הקודמת כבר נסגרה/);
+  assert.deepEqual(r.choices.map((x) => x.id), ['repeat', 'menu']);
+  const r2 = await agent.answer(id, '', 'repeat');
+  assert.equal(store.session(id).cart.length, 1);
+  assert.match(r2.reply, /זפולי/);
 });

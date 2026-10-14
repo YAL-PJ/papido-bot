@@ -4,7 +4,8 @@
 //  • Free text                     -> language model + tools.
 
 const { declarations, makeExecutor } = require('./tools');
-const { staticPrompt, statePrompt } = require('./prompt');
+const { staticPrompt, statePrompt, menuPrompt } = require('./prompt');
+const { proofread } = require('./proofread');
 const { createFlow } = require('./flow');
 const tel = require('./telemetry');
 
@@ -48,6 +49,8 @@ function createAgent({ llm, menu, business, store, options = {} }) {
       return [{ id: 'cats', title: '➕ עוד מנה' }, { id: 'checkout', title: '✔️ לסיום ההזמנה' }, { id: 'cart', title: '🛒 הסל' }];
     }
     if (!session.service && /משלוח/.test(reply) && /איסוף/.test(reply)) return flow.serviceChoices();
+    // nothing started yet (greeting, a question): a tap is the quickest way in
+    if (!session.service && !session.cart.length && session.status === 'open') return [{ id: 'menu', title: '📋 תפריט' }, ...flow.serviceChoices()];
     return null;
   }
 
@@ -123,6 +126,19 @@ function createAgent({ llm, menu, business, store, options = {} }) {
     return lines.join('\n');
   }
 
+  function cartConfirmation(session, toolLog) {
+    const lines = [];
+    for (const t of toolLog) {
+      if (t.name === 'add_to_cart' && t.result?.added) lines.push(`✓ נוסף: ${t.result.added}`);
+      if (t.name === 'modify_cart_item' && t.result?.updated) lines.push(`✓ עודכן: ${t.result.updated}`);
+      if (t.name === 'set_service' && t.result?.price_changes) lines.push(`מחירים מעודכנים: ${t.result.price_changes.join(' · ')}`);
+    }
+    if (!lines.length) return null;
+    const subtotal = session.cart.reduce((n, l) => n + l.total, 0);
+    if (session.cart.length > 1) lines.push(`🛒 בסל: ${Math.round(subtotal * 100) / 100}₪`);
+    return lines.join('\n');
+  }
+
   async function handle(customerId, rawText, rawPayload) {
     const session = store.session(customerId);
     let text = String(rawText || '').trim().slice(0, 2000);
@@ -175,13 +191,19 @@ function createAgent({ llm, menu, business, store, options = {} }) {
     try {
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
         const res = await llm.complete({
-          system: `${system}\n\n${statePrompt({ session, business, store })}`,
+          system: `${system}\n${menuPrompt(menu, session.service)}\n\n${statePrompt({ session, business, store, ignoreHours: options.ignoreHours ?? process.env.DEMO_IGNORE_HOURS !== 'false' })}`,
           history: session.history,
           tools: declarations,
         });
 
         if (!res.toolCalls.length) {
-          const reply = res.text || 'סליחה, לא הבנתי. אפשר לנסח שוב?';
+          let reply = res.text || 'סליחה, לא הבנתי. אפשר לנסח שוב?';
+          // what was added/changed + its price comes from code, never from the model's wording
+          const confirm = cartConfirmation(session, toolLog);
+          if (confirm) {
+            const restated = /^(הוספתי|נוסף|נוספ|הוסף|עדכנתי|עודכ|שיניתי|מעולה|סגור|אחלה|בשמחה|רשמתי|added|done)/i.test(reply.trim());
+            reply = restated || !res.text ? confirm : `${confirm}\n\n${reply}`;
+          }
           // safety net: the model says "here is the menu" but never called send_menu
           if (/התפריט\s*👆|הנה התפריט|here.{0,10}menu/i.test(reply) && !session.out.images.length && session.service) {
             const r = await execute(session, 'send_menu', { section: 'all' }, { source: 'safety-net' });
@@ -197,6 +219,8 @@ function createAgent({ llm, menu, business, store, options = {} }) {
             tel.log('safety_net.handoff', { message: 'model promised to check without handing off — handed off automatically' }, 'warn');
             finalReply = `${reply}\n${r.message_for_customer}`;
           }
+          // the model's own words get a spelling check before they go out (the code-built confirmation lines don't need it)
+          if (!confirm || finalReply !== confirm) finalReply = await proofread(llm, finalReply);
           session.history.push({ role: 'assistant', text: finalReply, raw: res.raw });
           session.history = trimHistory(session.history);
           return { ...finish(session, finalReply, toolLog), path: 'llm', rounds: round + 1 };

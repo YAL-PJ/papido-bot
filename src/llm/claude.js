@@ -32,7 +32,7 @@ function createClaude({ apiKey = process.env.ANTHROPIC_API_KEY, model = process.
           max_tokens: 1024,
           system,
           messages: toMessages(history),
-          tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters })),
+          ...(tools?.length ? { tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters })) } : {}),
         }),
       });
       tel.count('llm.calls');
