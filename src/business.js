@@ -68,7 +68,9 @@ class Business {
     const d = this.data;
     const zones = d.delivery.zones.map((z) => `- ${z.name} (${z.fee}₪): ${z.areas.join(', ')}`).join('\n');
     const faq = d.faq
-      .map((f) => `- ש: ${f.q}\n  ת: ${f.a === 'HANDOFF' ? '[העבר לנציג עם handoff_to_human]' : f.a}`)
+      .map((f) => `- ש: ${f.q}\n  ת: ${f.a === 'HANDOFF' ? '[העבר לנציג עם handoff_to_human]'
+        : /\[לעדכן/.test(f.a) ? '[לא ידוע — אסור לענות כן או לא, גם לא להסיק מפרטים אחרים. אמור שתבדוק עם הצוות והפעל handoff_to_human]'
+          : f.a}`)
       .join('\n');
     return [
       `שם: ${d.name}`,

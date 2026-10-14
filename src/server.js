@@ -102,7 +102,7 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(401, { ...challenge, 'Content-Type': 'text/plain; charset=utf-8' });
       return res.end('נדרשת סיסמת ניהול');
     }
-    if (url.pathname === '/healthz') return send(res, { body: { ok: true, storage: store.backend.name } });
+    if (url.pathname === '/healthz') return send(res, { body: { ok: true, storage: store.backend.name, version: (process.env.RENDER_GIT_COMMIT || '').slice(0, 7) || null } });
     // ---- monitoring ----
     if (req.method === 'GET' && url.pathname === '/monitor') {
       return send(res, { type: 'text/html', body: fs.readFileSync(path.join(PUBLIC, 'monitor.html'), 'utf8') });

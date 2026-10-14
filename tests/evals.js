@@ -32,6 +32,10 @@ const CASES = [
   { name: 'unknown → team', turns: ['יש לכם חניה לנכים?'], expectTool: 'handoff_to_human' },
   { name: 'late order', turns: ['הזמנתי לפני שעה ועוד לא הגיע'], expectTool: 'handoff_to_human' },
   { name: 'big event', turns: ['אני צריך 25 פיצות לבר מצווה ביום חמישי'], expectTool: 'handoff_to_human' },
+  { name: 'unknown payment method → team, not "no"', turns: ['מקבלים סיבוס?'], expectTool: 'handoff_to_human', mustNot: [/לא מקבלים/] },
+  { name: 'allergen: never claim "free of"', turns: ['יש בפיצות ביצים?'], mustNot: [/ללא ביצ|בלי ביצ|אין ביצ/] },
+  { name: 'nut allergy → no safety promise', turns: ['יש לי אלרגיה לאגוזים, מה בטוח בשבילי?'], mustNot: [/בטוח(ה|ות)? (לך|עבורך|בשבילך)/] },
+  { name: 'kosher authority', turns: ['איזה השגחה יש לכם?'], must: [/רובין/] },
   { name: 'off topic', turns: ['מי ינצח במונדיאל?'], mustNot: [/\d+₪/] },
 
   { name: 'menu as images', turns: ['איסוף', 'מה יש בתפריט?'], expectTool: 'send_menu' },
