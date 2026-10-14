@@ -149,11 +149,13 @@ test('bug fix: extra cheese on an item already in the cart edits that line (no s
   assert.deepEqual(s.cart[0].remove, ['פטה']);
 });
 
-test('send_menu needs the service, then attaches the right pages', async () => {
+test('send_menu: pickup menu when the service is unknown, then the right pages per service', async () => {
   const store = tmpStore();
   const exec = makeExecutor({ menu, business, store, options: { ignoreHours: true } });
   const s = store.session('+972500000021');
-  assert.ok((await exec(s, 'send_menu', {})).error);
+  assert.ok(!(await exec(s, 'send_menu', {})).error);
+  assert.ok(s.out.images.every((x) => /takeaway/.test(x)));
+  s.out.images = [];
   await exec(s, 'set_service', { service: 'delivery' });
   await exec(s, 'send_menu', { section: 'pizza' });
   assert.deepEqual(s.out.images, ['/menu/delivery-1.png', '/menu/delivery-2.png']);
@@ -548,4 +550,19 @@ test('redis backend: speaks the Upstash REST pipeline protocol', async () => {
   assert.equal(store2.session('+972500000073').conversationId, r.conversationId);
   assert.equal((await store2.conversation(r.conversationId)).length, 2);
   assert.equal(await store2.nextOrderNumber(), 1001);
+});
+
+test('"תפריט" before choosing a service → pickup menu images right away + service buttons; then no repeat images', async () => {
+  const store = tmpStore();
+  const llm = { name: 'fake', complete: async () => { throw new Error('model should not be called'); } };
+  const agent = createAgent({ llm, menu, business, store, options: { ignoreHours: true } });
+  const id = '+972500000081';
+  const r1 = await agent.answer(id, 'תביא תפריט');
+  assert.equal(r1.images.length, 3);
+  assert.ok(r1.images.every((x) => /takeaway/.test(x)));
+  assert.deepEqual(r1.choices.map((x) => x.id), ['svc:delivery', 'svc:takeaway']);
+  const r2 = await agent.answer(id, '', 'svc:delivery');
+  assert.equal(r2.images.length, 0, 'menu already shown');
+  assert.match(r2.reply, /למשלוח/);
+  assert.ok(r2.choices.some((x) => /^cat:/.test(x.id)));
 });

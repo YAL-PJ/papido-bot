@@ -35,7 +35,8 @@ function createAgent({ llm, menu, business, store, options = {} }) {
     if (session.status === 'done' || session.status === 'handoff') return null;
     if (withChoices) return withChoices.result.choices;
     if (ok('show_summary')) return [{ id: 'confirm', title: '✅ מאשר' }, { id: 'edit', title: '✏️ לשנות משהו' }];
-    if (ok('send_menu') && session.service) return null; // categories are added in finish()
+    if (ok('send_menu') && session.service) return null;
+    if (ok('send_menu') && !session.service) return flow.serviceChoices(); // categories are added in finish()
     const lastAdd = [...toolLog].reverse().find((t) => t.name === 'add_to_cart' && !t.result?.error);
     if (lastAdd && session.cart.length) {
       // same next step as a tap would give: toppings list for build-your-own, or the add-ons/next buttons

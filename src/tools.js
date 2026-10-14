@@ -253,15 +253,18 @@ function makeExecutor({ menu, business, store, options = {} }) {
     },
 
     send_menu(s, { section = 'all' }) {
-      if (!s.service) {
-        return { error: 'סוג ההזמנה לא ידוע והמחירים שונים. שאל "משלוח או איסוף?" עם offer_choices ושלח תפריט מיד אחרי התשובה.' };
-      }
+      // service not known yet → show the pickup menu right away (a customer who asks for a menu gets a menu)
+      const service = s.service || 'takeaway';
+      s.menuShown = service;
       const pages = { pizza: [1, 2], other: [3], all: [1, 2, 3] }[section] || [1, 2, 3];
       const images = pages
-        .map((n) => `/menu/${s.service}-${n}.png`)
+        .map((n) => `/menu/${service}-${n}.png`)
         .filter((p) => fs.existsSync(path.join(__dirname, '..', 'public', p)));
       s.out.images.push(...(images.length ? images : []));
-      s.out.links.push(`/menu/${s.service}`); // the full printable document, alongside the images
+      s.out.links.push(`/menu/${service}`); // the full printable document, alongside the images
+      if (!s.service) {
+        return { sent: `${images.length} תמונות תפריט איסוף עצמי`, note: 'הלקוח רואה את התפריט עם מחירי איסוף. כתוב: "הנה התפריט 👆 המחירים לאיסוף עצמי (במשלוח קצת יותר). משלוח או איסוף?" — הכפתורים מתווספים אוטומטית.' };
+      }
       return { sent: images.length ? `${images.length} תמונות תפריט` : 'קישור לתפריט', note: 'הלקוח רואה את התפריט. כתוב שורה קצרה אחת ("הנה התפריט 👆 מה להכין?") בלי לפרט את המנות.' };
     },
 

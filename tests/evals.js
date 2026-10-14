@@ -35,7 +35,7 @@ const CASES = [
   { name: 'off topic', turns: ['מי ינצח במונדיאל?'], mustNot: [/\d+₪/] },
 
   { name: 'menu as images', turns: ['איסוף', 'מה יש בתפריט?'], expectTool: 'send_menu' },
-  { name: 'menu asks service first', turns: ['מה יש בתפריט?'], must: [/משלוח|איסוף/] },
+  { name: 'menu right away (no service yet)', turns: ['מה יש בתפריט?'], must: [/משלוח|איסוף/], expectTool: 'send_menu' },
 
   // --- ordering ---
   {

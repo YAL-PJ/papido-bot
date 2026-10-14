@@ -189,7 +189,7 @@ function createFlow({ menu, business, store, execute: rawExecute }) {
 
   async function handle(s, payload) {
     const [kind, ...a] = String(payload).split(':');
-    const needService = !['svc'].includes(kind) && !s.service;
+    const needService = !['svc', 'menu'].includes(kind) && !s.service;
     if (needService) return { reply: 'משלוח או איסוף עצמי? (המחירים שונים)', choices: serviceChoices() };
 
     switch (kind) {
@@ -202,11 +202,18 @@ function createFlow({ menu, business, store, execute: rawExecute }) {
           if (r.dropped) lines.push(`⚠️ לא קיים ב${SERVICES[s.service]}: ${r.dropped.join(', ')}`);
           return r.choices ? { reply: `${lines.join('\n')}\nלהוסיף במקום?`, choices: r.choices } : cartReply(s, lines.join('\n'));
         }
+        if (s.menuShown) {
+          // menu images were already sent — just continue to the clickable menu (its prices are for this service)
+          return categoriesReply(s.service, `מעולה, ${SERVICES[s.service]} 👌${s.service === 'delivery' && s.menuShown !== 'delivery' ? ' (המחירים ברשימה הם למשלוח)' : ''} בחרו קטגוריה או פשוט כתבו מה להכין:`);
+        }
         await execute(s, 'send_menu', { section: 'all' });
         return { ...categoriesReply(s.service, `מעולה, ${SERVICES[s.service]} 👌 הנה התפריט. בחרו קטגוריה או פשוט כתבו מה להכין:`) };
       }
       case 'menu': {
         await execute(s, 'send_menu', { section: 'all' });
+        if (!s.service) {
+          return { reply: 'הנה התפריט 👆\nהמחירים בתמונות הם לאיסוף עצמי (במשלוח קצת יותר).\nלהזמנה — משלוח או איסוף?', choices: serviceChoices() };
+        }
         return categoriesReply(s.service, 'הנה התפריט 👆 בחרו קטגוריה או כתבו לי:');
       }
       case 'cats': return categoriesReply(s.service);
