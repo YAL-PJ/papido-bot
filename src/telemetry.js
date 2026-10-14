@@ -87,6 +87,10 @@ function snapshot() {
   };
 }
 
+// extra destinations for every event (e.g. Redis, so logs survive a restart of a free server)
+const sinks = [];
+function addSink(fn) { sinks.push(fn); }
+
 // ---------- core ----------
 function log(type, data = {}, level = 'info') {
   const c = ctx.getStore() || {};
@@ -114,6 +118,7 @@ function log(type, data = {}, level = 'info') {
     metrics.recentErrors.push({ ts: event.ts, type, traceId: event.traceId, message: data.message || data.error || '' });
     if (metrics.recentErrors.length > 100) metrics.recentErrors.shift();
   }
+  for (const sink of sinks) { try { sink(event); } catch { /* a sink never breaks the bot */ } }
   if (LEVELS[level] >= consoleLevel()) printConsole(event);
   return event;
 }
@@ -173,6 +178,6 @@ function installProcessHandlers() {
 }
 
 module.exports = {
-  log, count, timing, timed, withTrace, setConversation, currentTrace, snapshot, readEvents, truncate, pii, metrics,
+  log, addSink, count, timing, timed, withTrace, setConversation, currentTrace, snapshot, readEvents, truncate, pii, metrics,
   installProcessHandlers, LOG_DIR,
 };

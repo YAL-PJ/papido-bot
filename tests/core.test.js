@@ -566,3 +566,35 @@ test('"תפריט" before choosing a service → pickup menu images right away +
   assert.match(r2.reply, /למשלוח/);
   assert.ok(r2.choices.some((x) => /^cat:/.test(x.id)));
 });
+
+test('log shipper: events go to Redis in batches, survive a "restart", and reads are served from memory', async () => {
+  const tel = require('../src/telemetry');
+  const { RedisBackend } = require('../src/storage');
+  const { createLogShipper } = require('../src/log-shipper');
+  const lists = new Map();
+  let lranges = 0;
+  const fetchImpl = async (url, opts) => ({
+    ok: true,
+    json: async () => JSON.parse(opts.body).map(([cmd, k, ...a]) => {
+      const l = lists.get(k) || [];
+      if (cmd === 'RPUSH') { l.push(...a); lists.set(k, l); return { result: l.length }; }
+      if (cmd === 'LRANGE') { lranges++; const s = Number(a[0]); const e = Number(a[1]); return { result: l.slice(s < 0 ? Math.max(0, l.length + s) : s, e < 0 ? l.length + e + 1 : e + 1) }; }
+      return { result: 'OK' };
+    }),
+  });
+  const backend = new RedisBackend({ url: 'https://x.upstash.io', token: 't', fetchImpl });
+  const a = createLogShipper(backend, { intervalMs: 60000 });
+  tel.withTrace({ customer: '+972509990000', channel: 'test' }, () => tel.log('shipper.test', { n: 1 }));
+  await a.flush();
+  const key = `logs:${new Date().toISOString().slice(0, 10)}`;
+  assert.ok(lists.get(key).some((x) => JSON.parse(x).type === 'shipper.test'), 'event stored in Redis');
+  assert.ok(!lists.get(key).some((x) => JSON.parse(x).type === 'storage.call'), 'no feedback loop');
+  const before = lranges;
+  const got = await a.read({ limit: 50, filter: (e) => e.type === 'shipper.test' });
+  assert.equal(got.length, 1);
+  assert.equal(lranges, before, 'served from memory');
+  // new server instance: preloads today's events from Redis
+  const b = createLogShipper(backend, { intervalMs: 60000 });
+  const again = await b.read({ limit: 50, filter: (e) => e.type === 'shipper.test' });
+  assert.equal(again.length, 1);
+});

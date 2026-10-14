@@ -13,7 +13,8 @@
     "evals": "node tests/evals.js",
     "menu": "node scripts/clean-menu.js data/menu-raw.json && mv menu-clean.json menu-clean.md data/",
     "menu-images": "node scripts/render-menu-images.js",
-    "logs": "node scripts/logs.js"
+    "logs": "node scripts/logs.js",
+    "remote": "node scripts/remote.js"
   },
   "devDependencies": {
     "playwright": "^1.56.0"

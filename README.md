@@ -120,6 +120,10 @@ API: `/api/conversations?customerId=…`, `/api/conversations/<מזהה שיחה
 3. אחרי 2-3 דקות: `https://papido-bot-xxxx.onrender.com` — הצ'אט. `/monitor` — ניטור (שם משתמש כלשהו + הסיסמה).
 4. כל `git push` מעדכן את השרת לבד.
 
+**גישה מרחוק ללוגים:** ב-Upstash נשמרים גם הלוגים (לא רק על הדיסק של השרת), כך שהם שורדים אתחול.
+מפתח קריאה בלבד `LOGS_TOKEN` (ב-Render → Environment) מאפשר לקרוא שיחות ולוגים בלי סיסמת הניהול:
+`PAPIDO_URL=https://… LOGS_TOKEN=… npm run remote -- chats` (ועוד: `conv <מזהה>`, `trace <מזהה הודעה>`, `errors`, `metrics`). להחלפה/ביטול — משנים את הערך ב-Render.
+
 שימו לב: השרת החינמי נרדם אחרי ~15 דקות בלי שימוש, וההודעה הראשונה אחרי זה לוקחת ~30-60 שניות. הנתונים לא נפגעים (הם ב-Upstash).
 Twilio: Webhook = `https://<הכתובת>/webhook/twilio`. תמונות התפריט עובדות לבד (Render נותן את הכתובת הציבורית).
 

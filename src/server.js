@@ -24,6 +24,9 @@ const { verifyMeta, handleMeta } = require('./channels/meta');
 const menu = new Menu();
 const business = new Business();
 const store = new Store();
+// on Redis, logs are kept there too (a free server's disk is wiped on restart)
+const shipper = store.backend.name === 'redis' ? require('./log-shipper').createLogShipper(store.backend) : null;
+const readLogs = (q) => (shipper ? shipper.read(q) : Promise.resolve(tel.readEvents(q)));
 const llm = createLLM();
 const agent = createAgent({ llm, menu, business, store });
 
@@ -64,15 +67,18 @@ const QUIET = /^\/(api\/(orders|metrics|state|logs|conversations)|menu\/|favicon
 // Admin pages show customer data (names, addresses, conversations). On a public server set ADMIN_PASSWORD:
 // the browser asks once (any user name + this password). The demo chat itself stays open.
 const ADMIN = /^\/(monitor|api\/(logs|metrics|conversations|orders))(\/|$)/;
+const same = (given, expected) => crypto.timingSafeEqual(
+  crypto.createHash('sha256').update(String(given)).digest(), crypto.createHash('sha256').update(String(expected)).digest());
 function adminAllowed(req) {
   const pass = process.env.ADMIN_PASSWORD;
   if (!pass) return true;
+  // read-only key for remote log access (e.g. for Claude): GET only, revoke by changing LOGS_TOKEN
+  const bearer = String(req.headers.authorization || '').match(/^Bearer (.+)$/);
+  if (bearer) return req.method === 'GET' && !!process.env.LOGS_TOKEN && same(bearer[1], process.env.LOGS_TOKEN);
   const m = String(req.headers.authorization || '').match(/^Basic (.+)$/);
   if (!m) return false;
   const given = Buffer.from(m[1], 'base64').toString('utf8').split(':').slice(1).join(':');
-  const a = crypto.createHash('sha256').update(given).digest();
-  const b = crypto.createHash('sha256').update(pass).digest();
-  return crypto.timingSafeEqual(a, b);
+  return same(given, pass);
 }
 
 // The demo chat lets anyone type a "phone number". Those customers live under web:… so the demo can never
@@ -106,12 +112,14 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && url.pathname === '/api/logs') {
       const q = Object.fromEntries(url.searchParams);
-      const events = tel.readEvents({
+      const events = await readLogs({
         date: q.date,
         limit: Math.min(Number(q.limit || 300), 5000),
         filter: (e) => (!q.trace || e.traceId === q.trace)
+          && (!q.conversation || e.conversationId === q.conversation)
           && (!q.type || e.type.startsWith(q.type))
-          && (!q.problems || ['warn', 'error'].includes(e.level)),
+          && (!q.problems || ['warn', 'error'].includes(e.level))
+          && (!q.since || e.ts >= q.since),
       });
       return send(res, { body: events });
     }
@@ -205,7 +213,7 @@ server.listen(PORT, () => {
 for (const sig of ['SIGTERM', 'SIGINT']) {
   process.on(sig, async () => {
     tel.log('server.stop', { signal: sig });
-    try { await store.flush(); } catch {}
+    try { await store.flush(); await shipper?.flush(); } catch {}
     process.exit(0);
   });
 }
