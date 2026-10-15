@@ -23,7 +23,7 @@ He works in Hebrew, often from his phone. Wants small, testable increments and d
 `src/agent.js` (routing, LLM loop, safety nets) · `src/flow.js` (click ordering) · `src/tools.js` (cart, details, summary, confirm, handoff)
 `src/menu.js` + `src/catalog.js` (Tabit menu, merged sizes, findDish) · `src/prompt.js` (system prompt; per-service menu without ids)
 `src/store.js` + `src/storage.js` (file | Redis; customerId=phone, conversationId c-YYMMDD-xxxxxx, messageId=traceId)
-`src/telemetry.js` + `src/log-shipper.js` (JSONL + Redis) · `src/timeline.js` (event → readable line; add a case when adding a new log type) · `src/channels/{twilio,meta}.js` · `src/server.js`
+`docs/architecture.svg` (diagram, shown in README — update when the structure changes) · `src/telemetry.js` + `src/log-shipper.js` (JSONL + Redis) · `src/timeline.js` (event → readable line; add a case when adding a new log type) · `src/channels/{twilio,meta}.js` · `src/server.js`
 
 ## Known issues / next steps (as of 2026-10-15)
 1. Latency 11–30 s per order message — Gemini free tier (3–6 s/call, 503s). Decide: paid Gemini or Claude Haiku (supported, LLM_PROVIDER=claude).
