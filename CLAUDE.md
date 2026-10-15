@@ -32,3 +32,4 @@ He works in Hebrew, often from his phone. Wants small, testable increments and d
 4. Handoff notifies nobody yet (placeholder in `tools.js` handoff_to_human) — add Telegram/WhatsApp to owner with transcript link.
 5. Model sometimes completes dish names/sizes the customer didn't say (prompt tightened in fa23572 — verify live).
 6. Tabit menu gaps: some L dishes exist only in delivery or only in pickup; Caprese L delivery 90₪ vs 117₪ — owner fixes in Tabit.
+7. Bugs found on the restaurant's own site/Tabit/Google (to report to the owner): `site-issues/README.md` (Hebrew, with screenshots). Add new findings there.
