@@ -6,7 +6,7 @@ const path = require('path');
 const { SERVICES, norm, canonicalOption } = require('./menu');
 const { notifyKitchen } = require('./kitchen');
 const tel = require('./telemetry');
-const { equivalentLine, alternativesFor } = require('./catalog');
+const { equivalentLine, alternativesFor, findDish, priceText } = require('./catalog');
 
 const declarations = [
   {
@@ -17,22 +17,22 @@ const declarations = [
   {
     name: 'get_item_details',
     description: 'פרטי מנה: גדלים, מחירים, תוספות ושינויים אפשריים. להשתמש כשהלקוח שואל על תוספות או לפני הוספת מנה עם תוספות.',
-    parameters: { type: 'object', properties: { product_id: { type: 'string' } }, required: ['product_id'] },
+    parameters: { type: 'object', properties: { name: { type: 'string', description: 'שם המנה כמו בתפריט' } }, required: ['name'] },
   },
   {
     name: 'add_to_cart',
-    description: 'מוסיף מנה לסל. product_id מהתפריט. size רק אם יש כמה גדלים ("אישית"/"L"). add = תוספות, remove = רכיבים להוריד. בפיצה בהרכבה: חובה רוטב (למשל "רוטב קלאסי"), ותוספת לחצי: "חצי ימין: זיתי קלמטה".',
+    description: 'מוסיף מנה לסל. name = שם המנה כמו בתפריט (המערכת מוצאת אותה; אם יש כמה מתאימות — הלקוח בוחר בכפתור). size ("אישית"/"L") רק אם הלקוח אמר. add = תוספות, remove = רכיבים להוריד. בפיצה בהרכבה: חובה רוטב (למשל "רוטב קלאסי"), ותוספת לחצי: "חצי ימין: זיתי קלמטה". כמה מנות — כמה קריאות באותה תשובה.',
     parameters: {
       type: 'object',
       properties: {
-        product_id: { type: 'string' },
+        name: { type: 'string', description: 'שם המנה, למשל "פיצה תרד וגאודה"' },
         size: { type: 'string' },
         quantity: { type: 'integer' },
         add: { type: 'array', items: { type: 'string' } },
         remove: { type: 'array', items: { type: 'string' } },
         note: { type: 'string', description: 'בקשה מיוחדת שאינה תוספת, למשל "חתוכה ל-8"' },
       },
-      required: ['product_id'],
+      required: ['name'],
     },
   },
   {
@@ -176,6 +176,30 @@ function makeExecutor({ menu, business, store, options = {} }) {
     return r.line ? { line: r.line } : { error: r.error };
   }
 
+  // the customer's words -> the exact product + size (the model never has to know ids)
+  function resolveDish(service, { name, size }) {
+    const f = findDish(menu, service, name);
+    if (f.none) return { error: `לא מצאתי מנה בשם "${name}" בתפריט ה${SERVICES[service]}. אל תמציא — שאל את הלקוח או הצג רשימה (show_list).` };
+    if (f.ambiguous) {
+      tel.log('dish.ambiguous', { name, options: f.ambiguous.map((x) => x.item.title) }, 'info');
+      return {
+        error: `כמה מנות מתאימות ל"${name}": ${f.ambiguous.map((x) => x.item.title).join(' / ')}. הלקוח יבחר בכפתור — שאל "איזו מהן?".`,
+        choices: f.ambiguous.map((x) => ({ id: `item:${x.catIndex}:${x.itemIndex}`, title: x.item.title.slice(0, 24), description: priceText(x.item) })),
+      };
+    }
+    const { item, catIndex, itemIndex } = f;
+    if (item.sizes.length === 1) return { product_id: item.sizes[0].product_id, size: item.sizes[0].size };
+    const want = size ? (/\bL\b|גדול|משפחתי/i.test(size) ? 'L' : /אישי|קטנ/.test(size) ? 'אישית' : null) : null;
+    const sz = want && item.sizes.find((x) => x.label === want);
+    if (!sz) {
+      return {
+        error: `צריך לבחור גודל ל${item.title}: ${item.sizes.map((x) => `${x.label} ${x.price}₪`).join(' או ')}`,
+        choices: item.sizes.map((x, si) => ({ id: `size:${catIndex}:${itemIndex}:${si}`, title: `${x.label} ${x.price}₪` })),
+      };
+    }
+    return { product_id: sz.product_id, size: sz.size };
+  }
+
   const handlers = {
     set_service(s, { service }) {
       if (!SERVICES[service]) return { error: 'service חייב להיות delivery או takeaway' };
@@ -214,13 +238,23 @@ function makeExecutor({ menu, business, store, options = {} }) {
       };
     },
 
-    get_item_details(s, { product_id }) {
+    get_item_details(s, { product_id, name }) {
+      if (name && s.service) {
+        const f = findDish(menu, s.service, name);
+        if (f.item) product_id = f.item.sizes[0].product_id;
+        else if (f.ambiguous) return { error: `כמה מנות מתאימות ל"${name}": ${f.ambiguous.map((x) => x.item.title).join(' / ')}. שאל את הלקוח.` };
+      }
       if (!s.service) return { error: 'קודם צריך לדעת אם משלוח או איסוף (set_service).' };
       return menu.details(s.service, product_id);
     },
 
     add_to_cart(s, args) {
       if (!s.service) return { error: 'קודם צריך לדעת אם משלוח או איסוף (set_service).' };
+      if (args.name) {
+        const resolved = resolveDish(s.service, args);
+        if (resolved.error) return resolved;
+        args = { ...args, ...resolved };
+      }
       const r = menu.buildLine(s.service, args);
       if (r.error) return r;
       s.cart.push(r.line);

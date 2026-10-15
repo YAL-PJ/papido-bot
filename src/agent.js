@@ -200,9 +200,13 @@ function createAgent({ llm, menu, business, store, options = {} }) {
           let reply = res.text || 'סליחה, לא הבנתי. אפשר לנסח שוב?';
           // what was added/changed + its price comes from code, never from the model's wording
           const confirm = cartConfirmation(session, toolLog);
+          let modelPart = reply;
           if (confirm) {
             const restated = /^(הוספתי|נוסף|נוספ|הוסף|עדכנתי|עודכ|שיניתי|מעולה|סגור|אחלה|בשמחה|רשמתי|added|done)/i.test(reply.trim());
-            reply = restated || !res.text ? confirm : `${confirm}\n\n${reply}`;
+            // the customer hasn't said they're done — don't jump to address/name/payment (the buttons offer "לסיום")
+            const asksDetails = /לאן לשלוח|כתובת|על איזה שם|מזומן או אשראי|לאיזו שעה/.test(reply) && !/זהו|לסיום|סיימתי|זה הכל|זה הכול|לסגור/.test(text);
+            modelPart = restated || asksDetails || !res.text ? '' : reply;
+            if (asksDetails) tel.log('reply.dropped_early_details', { text: reply }, 'debug');
           }
           // safety net: the model says "here is the menu" but never called send_menu
           if (/התפריט\s*👆|הנה התפריט|here.{0,10}menu/i.test(reply) && !session.out.images.length && session.service) {
@@ -211,16 +215,15 @@ function createAgent({ llm, menu, business, store, options = {} }) {
             tel.log('safety_net.menu', { message: 'model said "here is the menu" without sending it — sent automatically' }, 'warn');
           }
           // safety net: the model promised to check with the team but never handed off — nobody would check
-          let finalReply = reply;
+          if (modelPart) modelPart = await proofread(llm, modelPart); // the model's own words only — the code-built lines are exact
+          let finalReply = [confirm, modelPart].filter(Boolean).join('\n\n');
           const handedOff = toolLog.some((t) => t.name === 'handoff_to_human' && !t.result?.error);
           if (!handedOff && /(אבדוק|נבדוק|אברר|נברר|אבדוק את זה|אעביר (את )?(זה|השאלה)|הצוות (יחזור|יחזרו|יבדוק|יבדקו))/.test(reply) && !/\?\s*$/.test(reply)) {
             const r = await execute(session, 'handoff_to_human', { reason: `auto (model said it would check): ${text.slice(0, 200)}` }, { source: 'safety-net' });
             toolLog.push({ name: 'handoff_to_human (auto)', args: {}, result: r });
             tel.log('safety_net.handoff', { message: 'model promised to check without handing off — handed off automatically' }, 'warn');
-            finalReply = `${reply}\n${r.message_for_customer}`;
+            finalReply = `${finalReply}\n${r.message_for_customer}`;
           }
-          // the model's own words get a spelling check before they go out (the code-built confirmation lines don't need it)
-          if (!confirm || finalReply !== confirm) finalReply = await proofread(llm, finalReply);
           session.history.push({ role: 'assistant', text: finalReply, raw: res.raw });
           session.history = trimHistory(session.history);
           return { ...finish(session, finalReply, toolLog), path: 'llm', rounds: round + 1 };

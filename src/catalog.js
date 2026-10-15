@@ -112,4 +112,32 @@ function alternativesFor(menu, line, from, to) {
   return out;
 }
 
-module.exports = { buildCatalog, priceText, equivalentLine, catalogsFor, alternativesFor };
+// ---- find a dish by name (the model passes the customer's words; the code picks the dish) ----
+const STOP = new Set(['פיצה', 'פיצת', 'פיצות', 'אישית', 'אישיות', 'גדולה', 'גדול', 'l', 'עם', 'של', 'אחת', 'אחד', 'מנת', 'מנה']);
+function dishTokens(text) {
+  return String(text || '').toLowerCase()
+    .replace(/[׳'’"״]/g, '').replace(/[-–,.()]/g, ' ')
+    .split(/\s+/).filter(Boolean)
+    .map((w) => (w.length > 3 && w.startsWith('ו') ? w.slice(1) : w)) // "וגאודה" -> "גאודה"
+    .filter((w) => !STOP.has(w));
+}
+const sameWord = (a, b) => a === b || (a.length >= 3 && b.length >= 3 && (a.startsWith(b) || b.startsWith(a)));
+
+// -> { item, catIndex, itemIndex } | { ambiguous: [{ item, catIndex, itemIndex }] } | { none: true }
+function findDish(menu, service, query) {
+  const q = dishTokens(query);
+  if (!q.length) return { none: true };
+  const scored = [];
+  (catalogsFor(menu)[service] || []).forEach((cat, catIndex) => cat.items.forEach((item, itemIndex) => {
+    const t = dishTokens(item.title);
+    const hit = q.filter((w) => t.some((x) => sameWord(w, x))).length;
+    if (hit) scored.push({ item, catIndex, itemIndex, q: hit / q.length, t: hit / t.length });
+  }));
+  if (!scored.length) return { none: true };
+  scored.sort((a, b) => b.q - a.q || b.t - a.t);
+  const best = scored.filter((x) => x.q === scored[0].q && x.t === scored[0].t);
+  if (best.length === 1 && scored[0].q === 1) return best[0];
+  return { ambiguous: scored.filter((x) => x.q === scored[0].q).slice(0, 8) };
+}
+
+module.exports = { buildCatalog, priceText, equivalentLine, catalogsFor, alternativesFor, findDish, dishTokens };

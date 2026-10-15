@@ -86,7 +86,7 @@ function menuPrompt(menu, service) {
   const cats = catalogsFor(menu);
   const lines = [];
   if (!service) {
-    lines.push('# תפריט (מחיר איסוף / משלוח). למזהים — קודם set_service.');
+    lines.push('# תפריט (מחיר איסוף / משלוח). להזמנה: set_service ואז add_to_cart(name, size) — אפשר באותה תשובה.');
     const deliveryPrice = new Map();
     for (const cat of cats.delivery) for (const it of cat.items) deliveryPrice.set(it.title, it.sizes);
     for (const cat of cats.takeaway) {
@@ -101,15 +101,14 @@ function menuPrompt(menu, service) {
       }
     }
   } else {
-    lines.push(`# תפריט ${SERVICES[service]} — add_to_cart(product_id, size). מנה עם כמה גדלים: חובה size, ורק גודל שהלקוח אמר.`);
+    lines.push(`# תפריט ${SERVICES[service]} — add_to_cart(name, size). name = שם המנה כמו כאן. size רק אם הלקוח אמר (אחרת המערכת שואלת אותו).`);
     for (const cat of cats[service]) {
       lines.push(`## ${cat.title}`);
       for (const it of cat.items) {
-        const sameId = it.sizes.every((s) => s.product_id === it.sizes[0].product_id);
-        const price = it.sizes.map((s) => `${s.label ? `${s.label} ` : ''}${s.price}₪${sameId ? '' : ` (${s.product_id})`}`).join(' / ');
+        const price = it.sizes.map((s) => `${s.label ? `${s.label} ` : ''}${s.price}₪`).join(' / ');
         const p = menu.get(service, it.sizes[0].product_id);
         const hasOptions = p && p.variants.some((v) => v.groups.length);
-        lines.push(`${sameId ? `${it.sizes[0].product_id} | ` : ''}${it.title} | ${price}${it.description ? ` | ${it.description}` : ''}${hasOptions ? ' | [יש תוספות/שינויים]' : ''}`);
+        lines.push(`${it.title} | ${price}${it.description ? ` | ${it.description}` : ''}${hasOptions ? ' | [יש תוספות/שינויים]' : ''}`);
       }
     }
   }

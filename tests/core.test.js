@@ -669,8 +669,8 @@ test('the model sees one clean menu line per dish, only for the chosen service',
   const { menuPrompt } = require('../src/prompt');
   const d = menuPrompt(menu, 'delivery');
   assert.equal((d.match(/ארבע גבינות לבנה/g) || []).length, 1, 'no Tabit duplicate');
-  assert.match(d, /d26 \| ארבע גבינות לבנה \| אישית 72₪ \/ L 117₪/);
-  assert.doesNotMatch(d, /\bt\d+\b/, 'no pickup ids in the delivery menu');
+  assert.match(d, /\nארבע גבינות לבנה \| אישית 72₪ \/ L 117₪/);
+  assert.doesNotMatch(d, /\b[dt]\d+\b/, 'no ids at all — the model names dishes, the code finds them');
   assert.match(menuPrompt(menu, null), /פיצה מרגריטה \| אישית 50₪ \/ 65₪ · L 85₪ \/ 117₪/);
 });
 
@@ -685,4 +685,38 @@ test('a button from a closed conversation does not act on an empty cart', async 
   const r2 = await agent.answer(id, '', 'repeat');
   assert.equal(store.session(id).cart.length, 1);
   assert.match(r2.reply, /זפולי/);
+});
+
+test('dish by name: exact words win, ambiguous names become buttons, missing size becomes buttons', async () => {
+  const store = tmpStore();
+  const exec = makeExecutor({ menu, business, store, options: { ignoreHours: true } });
+  const s = store.session('+972500000111');
+  await exec(s, 'set_service', { service: 'delivery' });
+  // the live bug: "תרד וגאודה L" must not become "תרד לבנה"
+  let r = await exec(s, 'add_to_cart', { name: 'תרד וגאודה', size: 'L' });
+  assert.equal(r.added, 'פיצה תרד וגאודה L — 117₪');
+  r = await exec(s, 'add_to_cart', { name: 'ארבע גבינות', size: 'גדולה' });
+  assert.match(r.added, /ארבע גבינות לבנה L — 117₪/);
+  r = await exec(s, 'add_to_cart', { name: 'תרד', size: 'L' });
+  assert.ok(r.error && r.choices.length >= 2, 'two dishes have תרד → customer picks');
+  assert.ok(r.choices.every((c) => /^item:\d+:\d+$/.test(c.id)));
+  r = await exec(s, 'add_to_cart', { name: 'פיצה מרגריטה' });
+  assert.ok(r.error && r.choices.map((c) => c.title).join() === 'אישית 65₪,L 117₪', 'no size given → size buttons');
+  r = await exec(s, 'add_to_cart', { name: 'פיצה פפרוני', size: 'L' });
+  assert.match(r.error, /לא מצאתי/);
+  r = await exec(s, 'add_to_cart', { name: 'זפולי' });
+  assert.equal(r.added, 'זפולי — 8₪');
+  assert.equal(s.cart.length, 3);
+});
+
+test('after the model adds a dish it does not jump to address/payment before the customer is done', async () => {
+  const store = tmpStore();
+  const steps = [
+    { text: '', toolCalls: [{ name: 'set_service', args: { service: 'delivery' } }, { name: 'add_to_cart', args: { name: 'מרגריטה', size: 'L' } }] },
+    { text: 'לאן לשלוח (רחוב, מספר)? על איזה שם? מזומן או אשראי?', toolCalls: [] },
+  ];
+  const agent = createAgent({ llm: { name: 'fake', complete: async () => steps.shift() }, menu, business, store, options: { ignoreHours: true } });
+  const r = await agent.answer('+972500000112', 'מרגריטה L משלוח');
+  assert.equal(r.reply, '✓ נוסף: פיצה מרגריטה L — 117₪');
+  assert.ok(r.choices.some((c) => c.id === 'checkout'));
 });
