@@ -51,6 +51,8 @@ function createClaude({ apiKey = process.env.ANTHROPIC_API_KEY, model = process.
         provider: 'claude', model, ms, historyMessages: history.length,
         tokens: { prompt: data.usage?.input_tokens, output: data.usage?.output_tokens }, finishReason: data.stop_reason,
         toolCalls: data.content.filter((b) => b.type === 'tool_use').map((b) => b.name),
+        calls: data.content.filter((b) => b.type === 'tool_use').map((b) => ({ name: b.name, args: b.input || {} })),
+        text: tel.truncate(data.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim(), 2000),
       }, 'debug');
       return {
         text: data.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim(),

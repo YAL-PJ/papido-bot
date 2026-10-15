@@ -2,6 +2,7 @@
 //   node scripts/remote.js chats [n]          recent conversations
 //   node scripts/remote.js conv <id>          full transcript of one conversation
 //   node scripts/remote.js trace <messageId>  everything that happened behind one message
+//   node scripts/remote.js timeline [convId|msgId]  one readable line per action (customer, code, Gemini, reply)
 //   node scripts/remote.js errors             warnings + errors today
 //   node scripts/remote.js events [type] [n]  raw events (e.g. events llm 50)
 //   node scripts/remote.js metrics            counters, latency, tokens
@@ -41,6 +42,9 @@ const brief = (e) => e.message || e.text || e.reply || e.name || e.path || e.mod
       const { ts, level, type, traceId, customer, channel, conversationId, ...rest } = e;
       console.log(`${t(ts)} ${level.padEnd(5)} ${type}  ${JSON.stringify(rest).slice(0, 600)}`);
     }
+  } else if (cmd === 'timeline') {
+    const q = !a1 ? {} : a1.startsWith('c-') ? { conversation: a1 } : { trace: a1 };
+    for (const r of await get('/api/timeline', { ...q, limit: 5000 })) console.log(`${t(r.ts)} ${r.icon} ${r.who.padEnd(8)} ${r.text}`);
   } else if (cmd === 'errors') {
     for (const e of await get('/api/logs', { problems: 1, limit: a1 || 100 })) console.log(`${t(e.ts)} ${e.level} ${e.type} ${e.traceId || ''}  ${String(brief(e)).slice(0, 300)}`);
   } else if (cmd === 'events') {

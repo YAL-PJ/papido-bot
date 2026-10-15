@@ -44,6 +44,15 @@ function toContents(history) {
   });
 }
 
+// what is new for the model in this call: the customer's message, or the tool results it asked for
+function lastInput(history) {
+  const m = history[history.length - 1];
+  if (!m) return undefined;
+  if (m.role === 'user') return tel.truncate(m.text, 500);
+  if (m.role === 'tool') return tel.truncate(m.results.map((r) => ({ [r.name]: r.result })), 1000);
+  return undefined;
+}
+
 // GEMINI_FALLBACK_MODEL (optional): used when the main model is overloaded (503) — e.g. another free model.
 function createGemini({ apiKey = process.env.GEMINI_API_KEY, model = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite', fallbackModel = process.env.GEMINI_FALLBACK_MODEL || null } = {}) {
   if (!apiKey) {
@@ -134,7 +143,10 @@ function createGemini({ apiKey = process.env.GEMINI_API_KEY, model = process.env
         tokens: { prompt: usage.promptTokenCount, output: usage.candidatesTokenCount, thoughts: usage.thoughtsTokenCount, total: usage.totalTokenCount },
         finishReason: cand?.finishReason,
         toolCalls: out.toolCalls.map((c) => c.name),
-        text: tel.truncate(out.text, 500),
+        calls: out.toolCalls.length ? out.toolCalls : undefined,
+        text: tel.truncate(out.text, 2000),
+        thoughts: tel.truncate(parts.filter((p) => p.thought && p.text).map((p) => p.text).join(' ').trim(), 1500) || undefined,
+        input: lastInput(history),
       }, 'debug');
       if (!data.candidates?.length) {
         tel.log('llm.empty', { model, promptFeedback: data.promptFeedback }, 'error');

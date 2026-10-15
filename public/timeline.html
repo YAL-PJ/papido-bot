@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>יומן מלא · פפידו</title>
+<style>
+  :root { --bg:#f6f5f2; --card:#fff; --text:#222; --muted:#777; --line:#e4e2dc; --cust:#e8f1fb; --model:#fbeee6; --bot:#e9f5ee; --warn:#fff4d6; --err:#fde8e8; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161616; --card:#1f1f1f; --text:#e8e8e8; --muted:#999; --line:#333; --cust:#1c2a3a; --model:#3a2a20; --bot:#1d3326; --warn:#3a3218; --err:#3d1f1f; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 system-ui,-apple-system,"Segoe UI",Arial,sans-serif; background:var(--bg); color:var(--text); }
+  header { position:sticky; top:0; z-index:2; background:var(--card); border-bottom:1px solid var(--line); padding:10px 16px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  header h1 { font-size:16px; margin:0 0 0 8px; font-weight:600; }
+  select, input, button { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--text); }
+  button { cursor:pointer; }
+  label { display:flex; gap:4px; align-items:center; color:var(--muted); font-size:13px; }
+  main { padding:8px 16px 40px; max-width:1100px; margin:0 auto; }
+  .msg { margin:14px 0 4px; padding-top:8px; border-top:2px solid var(--line); color:var(--muted); font-size:12px; display:flex; gap:8px; flex-wrap:wrap; }
+  .msg a { color:inherit; }
+  .row { display:grid; grid-template-columns:62px 92px 1fr; gap:8px; padding:6px 8px; border-radius:8px; cursor:pointer; align-items:start; }
+  .row + .row { margin-top:2px; }
+  .row:hover { outline:1px solid var(--line); }
+  .t { color:var(--muted); font-variant-numeric:tabular-nums; font-size:12px; padding-top:1px; }
+  .who { font-size:13px; white-space:nowrap; }
+  .txt { white-space:pre-wrap; word-break:break-word; }
+  .customer { background:var(--cust); } .model { background:var(--model); } .bot { background:var(--bot); }
+  .warn { background:var(--warn); } .error { background:var(--err); }
+  pre { grid-column:1/-1; margin:6px 0 0; padding:8px; background:var(--bg); border:1px solid var(--line); border-radius:6px; font-size:12px; overflow:auto; max-height:420px; direction:ltr; text-align:left; white-space:pre-wrap; word-break:break-word; }
+  .empty { color:var(--muted); padding:30px 0; text-align:center; }
+  .legend { color:var(--muted); font-size:12px; margin:8px 0; }
+  @media (max-width:600px) { .row { grid-template-columns:52px 1fr; } .who { grid-column:2; } .txt { grid-column:1/-1; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>📜 יומן מלא</h1>
+  <input type="date" id="date">
+  <select id="conv"><option value="">כל השיחות של היום</option></select>
+  <input id="search" placeholder="חיפוש בטקסט…" size="14">
+  <label><input type="checkbox" id="noise"> כולל רעשי רקע</label>
+  <label><input type="checkbox" id="live" checked> רענון אוטומטי</label>
+  <button id="reload">רענן</button>
+  <a href="/monitor" style="color:var(--muted);font-size:13px">מוניטור ›</a>
+</header>
+<main>
+  <div class="legend">👤 לקוח · ⚙️ קוד · 🤖 ג'מיני · 💬 מה שנשלח ללקוח · 🖥️ מערכת — לחיצה על שורה פותחת את הרשומה המלאה</div>
+  <div id="list"><div class="empty">טוען…</div></div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const today = new Date().toISOString().slice(0, 10);
+$('date').value = params.get('date') || today;
+const traceFilter = params.get('trace');
+let rows = [];
+const open = new Set();
+
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const time = (ts) => new Date(ts).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Jerusalem' });
+
+async function loadConversations() {
+  try {
+    const list = await (await fetch('/api/conversations?limit=100')).json();
+    const sel = $('conv');
+    const want = params.get('conversation') || sel.value;
+    sel.innerHTML = '<option value="">כל השיחות של היום</option>' + list.map((c) =>
+      `<option value="${esc(c.conversationId)}">${esc((c.startedAt || '').slice(5, 16).replace('T', ' '))} · ${esc(c.conversationId)} · ${esc(c.customerId)}</option>`).join('');
+    if (want) {
+      if (![...sel.options].some((o) => o.value === want)) sel.insertAdjacentHTML('beforeend', `<option value="${esc(want)}">${esc(want)}</option>`);
+      sel.value = want;
+    }
+  } catch { /* the list is optional */ }
+}
+
+async function load() {
+  const q = new URLSearchParams({ date: $('date').value, limit: '5000' });
+  if ($('conv').value) q.set('conversation', $('conv').value);
+  if (traceFilter) q.set('trace', traceFilter);
+  if ($('noise').checked) q.set('noise', '1');
+  const res = await fetch('/api/timeline?' + q);
+  if (!res.ok) { $('list').innerHTML = `<div class="empty">שגיאה ${res.status}</div>`; return; }
+  rows = await res.json();
+  render();
+}
+
+function render() {
+  const term = $('search').value.trim();
+  const shown = term ? rows.filter((r) => (r.text + ' ' + JSON.stringify(r.raw)).includes(term)) : rows;
+  if (!shown.length) { $('list').innerHTML = '<div class="empty">אין אירועים</div>'; return; }
+  let html = '';
+  let lastTrace = undefined;
+  shown.forEach((r, i) => {
+    if (r.traceId !== lastTrace) {
+      lastTrace = r.traceId;
+      html += r.traceId
+        ? `<div class="msg">הודעה <a href="?trace=${r.traceId}&date=${$('date').value}">${r.traceId}</a>${r.conversationId ? ` · שיחה <a href="?conversation=${r.conversationId}&date=${$('date').value}">${r.conversationId}</a>` : ''}</div>`
+        : '<div class="msg">מערכת</div>';
+    }
+    const key = r.ts + r.type + i;
+    const cls = [r.actor, r.level === 'error' ? 'error' : r.level === 'warn' ? 'warn' : ''].join(' ');
+    html += `<div class="row ${cls}" data-key="${esc(key)}" data-i="${i}">
+      <span class="t">${time(r.ts)}</span><span class="who">${r.icon} ${esc(r.who)}</span><span class="txt">${esc(r.text)}</span>
+      ${open.has(key) ? `<pre>${esc(JSON.stringify(r.raw, null, 2))}</pre>` : ''}</div>`;
+  });
+  const atBottom = innerHeight + scrollY >= document.body.scrollHeight - 80;
+  $('list').innerHTML = html;
+  $('list').querySelectorAll('.row').forEach((el) => el.onclick = (ev) => {
+    if (ev.target.closest('pre')) return;
+    const k = el.dataset.key;
+    open.has(k) ? open.delete(k) : open.add(k);
+    render();
+  });
+  if (atBottom && !open.size) scrollTo(0, document.body.scrollHeight);
+}
+
+$('reload').onclick = load;
+$('date').onchange = () => { loadConversations(); load(); };
+$('conv').onchange = load;
+$('noise').onchange = load;
+$('search').oninput = render;
+setInterval(() => { if ($('live').checked && $('date').value === today && !open.size) load(); }, 5000);
+loadConversations().then(load);
+</script>
+</body>
+</html>

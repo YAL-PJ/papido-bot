@@ -18,6 +18,7 @@ const { createAgent } = require('./agent');
 const { describeLine, totals } = require('./tools');
 const { ticketText } = require('./kitchen');
 const { menuDocument } = require('./menu-page');
+const { timeline } = require('./timeline');
 const { handleTwilio } = require('./channels/twilio');
 const { verifyMeta, handleMeta } = require('./channels/meta');
 
@@ -29,6 +30,8 @@ const shipper = store.backend.name === 'redis' ? require('./log-shipper').create
 const readLogs = (q) => (shipper ? shipper.read(q) : Promise.resolve(tel.readEvents(q)));
 const llm = createLLM();
 const agent = createAgent({ llm, menu, business, store });
+// the long fixed part of what the model sees — logged once, so the timeline can show exactly what it was told
+tel.log('prompt.loaded', { chars: agent.systemPrompt.length, hash: crypto.createHash('sha256').update(agent.systemPrompt).digest('hex').slice(0, 10), text: agent.systemPrompt });
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC = path.join(__dirname, '..', 'public');
@@ -62,11 +65,12 @@ function sessionView(id) {
 }
 
 // requests that poll often are not logged (they would drown everything else)
-const QUIET = /^\/(api\/(orders|metrics|state|logs|conversations)|menu\/|favicon|monitor)/;
+// /healthz: Render pings it every 5 s — 17k useless log lines a day
+const QUIET = /^\/(healthz|timeline|api\/(orders|metrics|state|logs|conversations|timeline)|menu\/|favicon|monitor)/;
 
 // Admin pages show customer data (names, addresses, conversations). On a public server set ADMIN_PASSWORD:
 // the browser asks once (any user name + this password). The demo chat itself stays open.
-const ADMIN = /^\/(monitor|api\/(logs|metrics|conversations|orders))(\/|$)/;
+const ADMIN = /^\/(monitor|timeline|api\/(logs|metrics|conversations|orders|timeline))(\/|$)/;
 const same = (given, expected) => crypto.timingSafeEqual(
   crypto.createHash('sha256').update(String(given)).digest(), crypto.createHash('sha256').update(String(expected)).digest());
 function adminAllowed(req) {
@@ -98,7 +102,7 @@ const server = http.createServer(async (req, res) => {
     if (ADMIN.test(url.pathname) && !adminAllowed(req)) {
       // only the /monitor page opens the browser's login box; background API calls just get 401
       // (after logging in at /monitor the browser sends the password with them automatically)
-      const challenge = url.pathname === '/monitor' ? { 'WWW-Authenticate': 'Basic realm="papido-admin", charset="UTF-8"' } : {};
+      const challenge = ['/monitor', '/timeline'].includes(url.pathname) ? { 'WWW-Authenticate': 'Basic realm="papido-admin", charset="UTF-8"' } : {};
       res.writeHead(401, { ...challenge, 'Content-Type': 'text/plain; charset=utf-8' });
       return res.end('נדרשת סיסמת ניהול');
     }
@@ -122,6 +126,20 @@ const server = http.createServer(async (req, res) => {
           && (!q.since || e.ts >= q.since),
       });
       return send(res, { body: events });
+    }
+
+    // everything that happened, one readable line per action (whole day, one conversation or one message)
+    if (req.method === 'GET' && url.pathname === '/timeline') {
+      return send(res, { type: 'text/html', body: fs.readFileSync(path.join(PUBLIC, 'timeline.html'), 'utf8') });
+    }
+    if (req.method === 'GET' && url.pathname === '/api/timeline') {
+      const q = Object.fromEntries(url.searchParams);
+      const events = await readLogs({
+        date: q.date,
+        limit: Math.min(Number(q.limit || 2000), 10000),
+        filter: (e) => (!q.trace || e.traceId === q.trace) && (!q.conversation || e.conversationId === q.conversation),
+      });
+      return send(res, { body: timeline(events, { noise: q.noise === '1' }) });
     }
 
     if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {

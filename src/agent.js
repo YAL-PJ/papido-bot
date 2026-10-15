@@ -162,6 +162,7 @@ function createAgent({ llm, menu, business, store, options = {} }) {
     }
 
     // ---- allergy questions: a fixed answer from the knowledge base, never the model's guess ----
+    if (payload && rawPayload) tel.log('agent.route', { reason: `לחיצה על כפתור [${payload}] → flow.js (בלי מודל)` }, 'debug');
     if (!payload && isAllergyQuestion(text)) {
       tel.log('input.allergy_question', { text: tel.truncate(text, 200) }, 'info');
       const reply = allergyReply(text);
@@ -176,7 +177,7 @@ function createAgent({ llm, menu, business, store, options = {} }) {
     if (payload) {
       const r = await flow.handle(session, payload);
       tel.count(r ? 'flow.taps' : 'flow.unknown_payload');
-      tel.log('flow.tap', { payload, handled: !!r }, r ? 'debug' : 'warn');
+      tel.log('flow.tap', { payload, handled: !!r, ...(r ? { reply: tel.truncate(r.reply, 800), buttons: r.choices ? r.choices.map((x) => x.title) : undefined } : {}) }, r ? 'debug' : 'warn');
       if (r) {
         session.history.push({ role: 'user', text: text || payload });
         session.history.push({ role: 'assistant', text: r.reply });
@@ -186,12 +187,16 @@ function createAgent({ llm, menu, business, store, options = {} }) {
     }
 
     // ---- free text: language model ----
+    tel.log('agent.route', { reason: 'טקסט חופשי → נשלח לג\'מיני עם הכלים' }, 'debug');
     session.history.push({ role: 'user', text });
     const toolLog = [];
     try {
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+        const state = statePrompt({ session, business, store, ignoreHours: options.ignoreHours ?? process.env.DEMO_IGNORE_HOURS !== 'false' });
+        // what the code tells the model this round (the long static prompt + menu is logged once at startup: prompt.loaded)
+        tel.log('llm.request', { round: round + 1, historyMessages: session.history.length, service: session.service || null, state }, 'debug');
         const res = await llm.complete({
-          system: `${system}\n${menuPrompt(menu, session.service)}\n\n${statePrompt({ session, business, store, ignoreHours: options.ignoreHours ?? process.env.DEMO_IGNORE_HOURS !== 'false' })}`,
+          system: `${system}\n${menuPrompt(menu, session.service)}\n\n${state}`,
           history: session.history,
           tools: declarations,
         });
@@ -217,6 +222,10 @@ function createAgent({ llm, menu, business, store, options = {} }) {
           // safety net: the model promised to check with the team but never handed off — nobody would check
           if (modelPart) modelPart = await proofread(llm, modelPart); // the model's own words only — the code-built lines are exact
           let finalReply = [confirm, modelPart].filter(Boolean).join('\n\n');
+          tel.log('reply.compose', {
+            codePart: confirm || undefined, modelPart: modelPart || undefined,
+            droppedModel: confirm && !modelPart && res.text ? tel.truncate(res.text, 300) : undefined,
+          }, 'debug');
           const handedOff = toolLog.some((t) => t.name === 'handoff_to_human' && !t.result?.error);
           if (!handedOff && /(אבדוק|נבדוק|אברר|נברר|אבדוק את זה|אעביר (את )?(זה|השאלה)|הצוות (יחזור|יחזרו|יבדוק|יבדקו))/.test(reply) && !/\?\s*$/.test(reply)) {
             const r = await execute(session, 'handoff_to_human', { reason: `auto (model said it would check): ${text.slice(0, 200)}` }, { source: 'safety-net' });
@@ -280,6 +289,7 @@ function createAgent({ llm, menu, business, store, options = {} }) {
         tel.log('turn.end', {
           ms, path: r.path, reply: tel.truncate(r.reply, 800),
           choices: r.choices ? r.choices.map((c) => c.id || c.title) : undefined,
+          buttons: r.choices ? r.choices.map((c) => c.title) : undefined,
           images: r.images?.length || undefined,
           tools: r.tools.map((t) => t.name),
           cart: r.session.cart.length, status: r.session.status,

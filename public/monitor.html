@@ -45,6 +45,7 @@
   <span class="pill" id="llm">—</span>
   <span class="muted" id="uptime"></span>
   <label class="muted"><input type="checkbox" id="auto" checked> רענון אוטומטי</label>
+  <a href="/timeline" class="muted">📜 יומן מלא</a>
   <a href="/" class="muted">← לצ'אט</a>
 </header>
 <main>
@@ -56,7 +57,7 @@
       <div class="scroll"><table><thead><tr><th>שעה</th><th>ערוץ</th><th>לקוח</th><th>שיחה</th><th>הודעה</th><th>תשובה</th><th>מסלול</th><th>ms</th></tr></thead><tbody id="turns"></tbody></table></div>
     </div>
     <div class="card">
-      <h2>מעקב הודעה <span class="muted" id="traceId"></span></h2>
+      <h2>מעקב הודעה <span class="muted" id="traceId"></span> <a class="muted" id="traceLink" href="/timeline">ביומן ›</a></h2>
       <div id="trace" class="scroll muted">בחרו שורה מהשיחות או מהאירועים.</div>
     </div>
   </section>
@@ -151,7 +152,7 @@ async function loadEvents() {
 
 async function showTrace(id) {
   if (!id) return;
-  $('traceId').textContent = id;
+  $('traceId').textContent = id; $('traceLink').href = '/timeline?trace=' + id;
   const ev = await (await fetch(`/api/logs?trace=${id}&limit=500`)).json();
   const t0 = ev.length ? new Date(ev[0].ts).getTime() : 0;
   $('trace').innerHTML = `<div class="tl">${ev.map((e) => {

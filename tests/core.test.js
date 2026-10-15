@@ -720,3 +720,34 @@ test('after the model adds a dish it does not jump to address/payment before the
   assert.equal(r.reply, '✓ נוסף: פיצה מרגריטה L — 117₪');
   assert.ok(r.choices.some((c) => c.id === 'checkout'));
 });
+
+test('timeline: one readable line per action — customer, routing, model request, model decision, tool, reply', async () => {
+  const tel = require('../src/telemetry');
+  const { timeline } = require('../src/timeline');
+  const store = tmpStore();
+  const script = [
+    { text: '', toolCalls: [{ name: 'set_service', args: { service: 'takeaway' } }] },
+    { text: 'מעולה, איסוף עצמי. מה להכין?', toolCalls: [] },
+  ];
+  const llm = { name: 'fake', complete: async () => script.shift() };
+  const agent = createAgent({ llm, menu, business, store, options: { ignoreHours: true } });
+  const r = await agent.answer('+972500000077', 'איסוף בבקשה');
+  const rows = timeline(tel.readEvents({ filter: (e) => e.traceId === r.traceId }));
+  const types = rows.map((x) => x.type);
+  for (const t of ['turn.start', 'agent.route', 'llm.request', 'tool.call', 'reply.compose', 'turn.end']) assert.ok(types.includes(t), `missing ${t}: ${types}`);
+  assert.match(rows.find((x) => x.type === 'turn.start').text, /איסוף בבקשה/);
+  assert.match(rows.find((x) => x.type === 'tool.call').text, /set_service\(service=takeaway\)/);
+  assert.match(rows.find((x) => x.type === 'llm.request').text, /סוג הזמנה/);
+  assert.match(rows.find((x) => x.type === 'turn.end').text, /מה להכין/);
+  assert.ok(rows.every((x) => x.icon && x.who && x.text));
+  // a real model call line shows the tools it chose, with arguments
+  const { describe } = require('../src/timeline');
+  assert.match(describe({ type: 'llm.call', purpose: 'turn', ms: 4200, calls: [{ name: 'add_to_cart', args: { name: 'מרגריטה', size: 'L' } }] }).text, /add_to_cart\(name=מרגריטה, size=L\)/);
+});
+
+test('timeline: background noise (health checks) hidden unless asked', () => {
+  const { timeline } = require('../src/timeline');
+  const ev = [{ ts: 'x', level: 'debug', type: 'http.request', method: 'GET', path: '/healthz', status: 200, ms: 1 }];
+  assert.equal(timeline(ev).length, 0);
+  assert.equal(timeline(ev, { noise: true }).length, 1);
+});
