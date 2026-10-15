@@ -3,51 +3,57 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#008069">
 <title>פפידו — דמו בוט</title>
 <style>
+  /* WhatsApp look for the frame (light mode only), Papido colors for the bot's identity inside the chat */
   :root {
-    --bg: #f4f1ea; --panel: #ffffff; --ink: #1d1b16; --muted: #6f6a5f; --line: #e3ded2;
+    --bg: #f0f2f5; --panel: #ffffff; --ink: #111b21; --muted: #667781; --line: #e9edef;
+    --wa: #008069; --wa-dark: #075e54; --wa-out: #d9fdd3; --wa-in: #ffffff; --wa-wall: #efeae2; --wa-link: #027eb5;
     --brand: #d7262f; --brand-ink: #fff; --sun: #ffd400;
-    --me: #fff6c2; --bot: #ffffff; --chat-bg: #efe9dc;
+    --me: var(--wa-out); --bot: var(--wa-in); --chat-bg: var(--wa-wall);
     --ok: #1f7a3a;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #151412; --panel: #1f1d1a; --ink: #f1ede4; --muted: #a39d90; --line: #34312b;
-      --me: #4a3f12; --bot: #2a2723; --chat-bg: #1a1916; --ok: #6fd18e;
-    }
+    color-scheme: light;
   }
   * { box-sizing: border-box; }
   body { margin: 0; font: 15px/1.45 system-ui, "Segoe UI", Arial, sans-serif; background: var(--bg); color: var(--ink); }
-  header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--sun); color: #1d1b16; }
-  header b { color: var(--brand); font-size: 20px; letter-spacing: .5px; }
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--wa-dark); color: #fff; flex-wrap: wrap; }
+  header b { color: var(--sun); font-size: 20px; letter-spacing: .5px; }
   header small { opacity: .75; }
   main { display: grid; grid-template-columns: minmax(320px, 440px) 1fr; gap: 16px; padding: 16px; max-width: 1200px; margin: 0 auto; }
-  @media (max-width: 820px) { main { grid-template-columns: 1fr; } }
+  @media (max-width: 820px) { main { grid-template-columns: 1fr; padding: 10px; } }
 
-  .phone { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; display: flex; flex-direction: column; height: min(78vh, 760px); }
-  .phone-top { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .phone { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; display: flex; flex-direction: column; height: min(82vh, 780px); box-shadow: 0 2px 10px rgba(11,20,26,.08); }
+  /* WhatsApp chat header: the contact is Papido */
+  .wa-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--wa); color: #fff; }
+  .avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--sun); border: 2px solid var(--brand); display: grid; place-items: center; font-size: 20px; flex-shrink: 0; }
+  .wa-head .name { font-weight: 600; font-size: 16px; }
+  .wa-head .sub { font-size: 12px; opacity: .85; }
+  /* test controls (not part of WhatsApp) */
+  .phone-top { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; background: var(--bg); }
   .phone-top label { font-size: 12px; color: var(--muted); }
-  .phone-top input { width: 140px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); direction: ltr; }
-  button { font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); padding: 6px 10px; }
-  button.primary { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
-  #log { flex: 1; overflow-y: auto; padding: 14px; background: var(--chat-bg); display: flex; flex-direction: column; gap: 8px; }
+  .phone-top input { width: 140px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); direction: ltr; font-size: 16px; }
+  button { font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 6px 10px; }
+  #log { flex: 1; overflow-y: auto; padding: 14px 12px; background: var(--chat-bg); display: flex; flex-direction: column; gap: 6px; }
   #log > * { flex-shrink: 0; }
-  .msg { max-width: 85%; padding: 8px 11px; border-radius: 12px; white-space: pre-wrap; word-wrap: break-word; box-shadow: 0 1px 0 rgba(0,0,0,.06); }
-  .me { align-self: flex-start; background: var(--me); border-bottom-right-radius: 4px; }
-  .bot { align-self: flex-end; background: var(--bot); border-bottom-left-radius: 4px; }
-  .typing { align-self: flex-end; color: var(--muted); font-size: 13px; }
-  .imgs { align-self: flex-end; display: flex; gap: 6px; overflow-x: auto; max-width: 92%; }
-  .imgs a.full { flex-basis: 100%; font-size: 13px; color: #1a73e8; text-decoration: none; padding: 2px 4px; }
-  .imgs { flex-wrap: wrap; }
-  .imgs img { height: 300px; border-radius: 10px; border: 1px solid var(--line); cursor: zoom-in; background: #fff; }
-  .opts { align-self: flex-end; display: flex; flex-wrap: wrap; gap: 6px; max-width: 85%; justify-content: flex-end; }
-  .opts button { background: var(--panel); border-color: var(--brand); color: var(--brand); border-radius: 999px; padding: 6px 12px; font-weight: 600; }
+  /* bubbles like WhatsApp in Hebrew: customer on the left (green), Papido on the right (white) */
+  .msg { max-width: 85%; padding: 6px 10px 7px; border-radius: 8px; white-space: pre-wrap; word-wrap: break-word; box-shadow: 0 1px .5px rgba(11,20,26,.13); }
+  .msg a { color: var(--wa-link); }
+  .me { align-self: flex-end; background: var(--me); border-top-left-radius: 0; }
+  .bot { align-self: flex-start; background: var(--bot); border-top-right-radius: 0; }
+  .typing { align-self: flex-start; color: var(--wa); font-size: 13px; font-style: italic; }
+  .imgs { align-self: flex-start; display: flex; gap: 6px; overflow-x: auto; max-width: 92%; flex-wrap: wrap; }
+  .imgs a.full { flex-basis: 100%; font-size: 13px; color: var(--wa-link); text-decoration: none; padding: 2px 4px; }
+  .imgs img { height: 300px; border-radius: 8px; border: 3px solid #fff; cursor: zoom-in; background: #fff; box-shadow: 0 1px .5px rgba(11,20,26,.13); }
+  /* reply buttons and lists: WhatsApp shape, Papido red */
+  .opts { align-self: flex-start; display: flex; flex-wrap: wrap; gap: 6px; max-width: 85%; justify-content: flex-start; }
+  .opts button { background: var(--panel); border: 1px solid transparent; color: var(--brand); border-radius: 8px; padding: 8px 14px; font-weight: 600; box-shadow: 0 1px .5px rgba(11,20,26,.13); }
   .opts button:disabled { opacity: .45; cursor: default; }
   .opts .listhead { width: 100%; text-align: left; font-size: 12px; color: var(--muted); }
   .opts button small { display: none; }
-  .list { align-self: flex-end; width: 82%; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
-  .list .listhead { padding: 7px 12px; font-size: 13px; font-weight: 700; color: var(--brand); border-bottom: 1px solid var(--line); }
+  .list { align-self: flex-start; width: 82%; background: var(--panel); border-radius: 8px; overflow: hidden; box-shadow: 0 1px .5px rgba(11,20,26,.13); }
+  .list .listhead { padding: 8px 12px; font-size: 13px; font-weight: 700; color: var(--brand); border-bottom: 1px solid var(--line); }
   .list button { display: block; width: 100%; text-align: right; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; padding: 8px 12px; }
   .list button:last-child { border-bottom: 0; }
   .list button span { display: block; font-weight: 600; }
@@ -57,10 +63,13 @@
   .opts button.picked, .list button.picked { opacity: 1; background: var(--me); }
   #zoom { position: fixed; inset: 0; background: rgba(0,0,0,.8); display: none; align-items: center; justify-content: center; z-index: 9; }
   #zoom img { max-height: 95vh; max-width: 95vw; border-radius: 8px; }
-  .chips { display: flex; gap: 6px; overflow-x: auto; padding: 8px 10px; border-top: 1px solid var(--line); }
-  .chips button { white-space: nowrap; font-size: 13px; padding: 4px 9px; border-radius: 999px; }
-  form { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--line); }
-  form input { flex: 1; padding: 10px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; }
+  .chips { display: flex; gap: 6px; overflow-x: auto; padding: 8px 10px; background: var(--bg); }
+  .chips button { white-space: nowrap; font-size: 13px; padding: 4px 10px; border-radius: 999px; color: var(--wa); border-color: var(--line); }
+  /* WhatsApp input bar */
+  form { display: flex; gap: 8px; padding: 8px 10px; background: var(--bg); align-items: center; }
+  form input { flex: 1; padding: 10px 14px; border-radius: 22px; border: 0; background: var(--panel); color: var(--ink); font: inherit; font-size: 16px; outline: none; }
+  form .send { width: 44px; height: 44px; border-radius: 50%; border: 0; padding: 0; background: var(--wa); color: #fff; display: grid; place-items: center; flex-shrink: 0; }
+  form .send svg { transform: scaleX(-1); }
 
   .side { display: grid; gap: 16px; align-content: start; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
@@ -78,6 +87,10 @@
 <header><b>PAPIDO</b><span>דמו — בוט הזמנות ושאלות</span><small>(ממשק בדיקה, בוואטסאפ זה ייראה כשיחה רגילה)</small></header>
 <main>
   <section class="phone">
+    <div class="wa-head">
+      <div class="avatar">🍕</div>
+      <div><div class="name">פיצה פפידו</div><div class="sub">בוט הזמנות · מחובר</div></div>
+    </div>
     <div class="phone-top">
       <label for="cid">טלפון לקוח</label>
       <input id="cid" value="+972500000001">
@@ -86,7 +99,7 @@
     </div>
     <div id="log"></div>
     <div class="chips" id="chips"></div>
-    <form id="f"><input id="t" placeholder="כתוב הודעה..." autocomplete="off"><button class="primary">שלח</button></form>
+    <form id="f"><input id="t" placeholder="הקלד הודעה" autocomplete="off" enterkeyhint="send"><button class="send" aria-label="שלח"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M1.101 21.757 23.8 12.028 1.101 2.3l.011 7.912 13.623 1.816-13.623 1.817-.011 7.912z"/></svg></button></form>
   </section>
 
   <section class="side">
